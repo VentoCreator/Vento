@@ -2,6 +2,9 @@ from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from locales import get_text, get_available_languages
 from database import get_known_user, update_user_language, register_known_user
+import logging
+
+logger = logging.getLogger(__name__)
 
 @Client.on_message(filters.command("language") | filters.command("lang"))
 async def language_command(client: Client, message: Message):
@@ -65,18 +68,18 @@ async def confirm_language_callback(client: Client, callback_query):
     lang_code = callback_query.matches[0].group(1)
     user_id = callback_query.from_user.id
     
-    print(f"[LANGUAGE] Tasdiqlash: user_id={user_id}, yangi_til={lang_code}")
+    logger.info("[LANGUAGE] Tasdiqlash: user_id=%s, yangi_til=%s", user_id, lang_code)
     
     try:
         await callback_query.answer()
         
-        print(f"[LANGUAGE] Bazaga yozilmoqda: user_id={user_id}, lang={lang_code}")
+        logger.info("[LANGUAGE] Bazaga yozilmoqda: user_id=%s, lang=%s", user_id, lang_code)
         await update_user_language(user_id, lang_code)
-        print(f"[LANGUAGE] Bazaga yozildi: user_id={user_id}, lang={lang_code}")
+        logger.info("[LANGUAGE] Bazaga yozildi: user_id=%s, lang=%s", user_id, lang_code)
         
         user = await get_known_user(user_id)
         if not user:
-            print(f"[LANGUAGE] Yangi user: user_id={user_id}")
+            logger.info("[LANGUAGE] Yangi user: user_id=%s", user_id)
             await register_known_user(
                 user_id,
                 callback_query.from_user.username,
@@ -85,12 +88,12 @@ async def confirm_language_callback(client: Client, callback_query):
             )
         
         confirmation_msg = get_text("language_set", lang_code)
-        print(f"[LANGUAGE] Xabar tahrirlanmoqda: {confirmation_msg[:50]}...")
+        logger.info("[LANGUAGE] Xabar tahrirlanmoqda: %s...", confirmation_msg[:50])
         await callback_query.message.edit_text(confirmation_msg)
-        print(f"[LANGUAGE] Xabar tahrirlandi")
+        logger.info("[LANGUAGE] Xabar tahrirlandi")
         
         start_message = get_text("start", lang_code)
-        print(f"[LANGUAGE] Start xabari yuborilmoqda: {start_message[:50]}...")
+        logger.info("[LANGUAGE] Start xabari yuborilmoqda: %s...", start_message[:50])
         
         from database import is_admin
         keyboard = None
@@ -104,12 +107,10 @@ async def confirm_language_callback(client: Client, callback_query):
             reply_markup=keyboard
         )
         
-        print(f"[LANGUAGE] Muvaffaqiyatli: user_id={user_id}, lang={lang_code}, xabar={sent_msg is not None}")
+        logger.info("[LANGUAGE] Muvaffaqiyatli: user_id=%s, lang=%s, xabar=%s", user_id, lang_code, sent_msg is not None)
         
     except Exception as e:
-        print(f"[LANGUAGE] XATOLIK: user_id={user_id}, xato={e}")
-        import traceback
-        traceback.print_exc()
+        logger.exception("[LANGUAGE] XATOLIK: user_id=%s, xato=%s", user_id, e)
         try:
             await callback_query.answer(f"❌ Xatolik: {str(e)[:50]}", show_alert=True)
         except:

@@ -5,6 +5,7 @@ This file maintains backward compatibility while using the new login system
 from pyrogram import Client, filters, ContinuePropagation
 from pyrogram.types import Message, CallbackQuery
 from config import user_states, is_admin
+import logging
 from login_system import (
     login_service, 
     login_handlers, 
@@ -24,6 +25,8 @@ from login_system.login_handlers import (
     admin_invoice_callback
 )
 
+logger = logging.getLogger(__name__)
+
 # Keep logout handler for backward compatibility
 @Client.on_callback_query(filters.regex("^logout$"))
 async def logout_callback(client: Client, callback_query: CallbackQuery):
@@ -41,7 +44,7 @@ async def logout_callback(client: Client, callback_query: CallbackQuery):
     try:
         await LoginDatabaseAdapter.set_user_active_status(user_id, False)
     except Exception as e:
-        print(f"CRITICAL: Failed to set user inactive in DB on logout: {e}")
+        logger.error("CRITICAL: Failed to set user inactive in DB on logout: %s", e)
     
     # 3. RESET FSM: Clear all state and set to LOGGED_OUT
     user_states.pop(user_id, None)
@@ -51,7 +54,7 @@ async def logout_callback(client: Client, callback_query: CallbackQuery):
     try:
         await login_service.cancel_login(user_id)
     except Exception as e:
-        print(f"Failed to clear LoginStateManager state: {e}")
+        logger.warning("Failed to clear LoginStateManager state: %s", e)
     
     await callback_query.message.edit_text(
         "👋 Akkaunt botdan uzildi.\n\nQaytadan ulash uchun `/start` yuboring."

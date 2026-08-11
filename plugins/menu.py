@@ -86,7 +86,7 @@ async def state_cleaner(client: Client, message: Message):
     txt = (message.text or "").strip()
     uid = message.from_user.id
     current_state = user_states.get(uid)
-    logger.info(f"[DIAG_STATE_CLEANER] User {uid}, text={txt[:30]}, state={current_state}")
+    logger.debug(f"[DIAG_STATE_CLEANER] User {uid}, text={txt[:30]}, state={current_state}")
     
     # Don't interfere with login states - let login handlers handle them
     if current_state in ["waiting_for_phone", "waiting_for_code", "waiting_for_password", "waiting_for_admin_approval"]:
@@ -503,7 +503,7 @@ async def menu_button_handler(client: Client, message: Message):
     except ContinuePropagation:
         raise
     except Exception as e:
-        print(f"menu_button_handler xatosi: {e}")
+        logger.exception("menu_button_handler xatosi: %s", e)
 
 
 @Client.on_callback_query(filters.regex("^do_link_account$"))

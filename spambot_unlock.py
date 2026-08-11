@@ -1,5 +1,8 @@
 import asyncio
+import logging
 from pyrogram import Client
+
+logger = logging.getLogger(__name__)
 
 UNLOCK_KEYWORDS = ["qush", "erkin", "free", "premium", "unlimited", "no limits"]
 
@@ -27,14 +30,14 @@ async def send_and_check_unlock(client: Client, max_attempts: int = 5) -> bool:
                     if message.text:
                         text = message.text.lower()
                         if any(keyword in text for keyword in UNLOCK_KEYWORDS):
-                            print(f"✅ Spambot unlocked! Keyword found: {message.text[:50]}")
+                            logger.info("Spambot unlocked! Keyword found: %s", message.text[:50])
                             return True
             
-            print(f"⏳ Attempt {attempt + 1}/{max_attempts} - no unlock keywords found")
+            logger.info("Attempt %d/%d - no unlock keywords found", attempt + 1, max_attempts)
             await asyncio.sleep(2)
             
         except Exception as e:
-            print(f"Spambot unlock xatosi (attempt {attempt + 1}): {e}")
+            logger.warning("Spambot unlock xatosi (attempt %d): %s", attempt + 1, e)
             await asyncio.sleep(2)
     
     return False
@@ -61,14 +64,14 @@ async def unlock_with_message(client: Client, message: str = "free", max_attempt
                     if msg.text:
                         text = msg.text.lower()
                         if any(keyword in text for keyword in UNLOCK_KEYWORDS):
-                            print(f"✅ Spambot unlocked with message! Keyword found: {msg.text[:50]}")
+                            logger.info("Spambot unlocked with message! Keyword found: %s", msg.text[:50])
                             return True
             
-            print(f"⏳ Message attempt {attempt + 1}/{max_attempts} - no unlock keywords found")
+            logger.info("Message attempt %d/%d - no unlock keywords found", attempt + 1, max_attempts)
             await asyncio.sleep(2)
             
         except Exception as e:
-            print(f"Spambot message unlock xatosi (attempt {attempt + 1}): {e}")
+            logger.warning("Spambot message unlock xatosi (attempt %d): %s", attempt + 1, e)
             await asyncio.sleep(2)
     
     return False
@@ -92,5 +95,5 @@ async def check_if_locked(client: Client) -> bool:
                         return False
         return True
     except Exception as e:
-        print(f"Check lock status xatosi: {e}")
+        logger.warning("Check lock status xatosi: %s", e)
         return True  # Assume locked if we can't check

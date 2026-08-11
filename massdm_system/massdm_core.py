@@ -4,6 +4,7 @@ MassDM Core - Business logic for mass messaging with full anti-spam protection
 import asyncio
 import random
 import time
+import logging
 from typing import Dict, List, Optional, Tuple, Any
 from pyrogram import Client
 from pyrogram.errors import (
@@ -12,6 +13,8 @@ from pyrogram.errors import (
 )
 
 from massdm_system.massdm_config import MassDMSettings, MassDMConstants, SPAMBOT_UNLOCK_KEYWORDS, SPAMBOT_RESTRICTION_KEYWORDS
+
+logger = logging.getLogger(__name__)
 
 
 class MassDMError(Exception):
@@ -493,7 +496,7 @@ class MassDMService:
                 auto_stop = settings.get("auto_stop_on_high_risk", True)
                 await MassDMDatabaseAdapter.save_setting(user_id, auto_stop)
             except Exception as e:
-                print(f"Error saving settings to database: {e}")
+                logger.warning("Error saving settings to database: %s", e)
     
     async def _save_progress(self, user_id: int, stats: Dict[str, Any]):
         """Save progress to database (thread-safe)"""
@@ -501,7 +504,7 @@ class MassDMService:
             from database_adapter import MassDMDatabaseAdapter
             await MassDMDatabaseAdapter.save_progress(user_id, stats)
         except Exception as e:
-            print(f"Error saving progress: {e}")
+            logger.warning("Error saving progress: %s", e)
     
     async def _save_auto_stopped_task(self, stop_key: str, user_id: int, stats: Dict[str, Any], reason: str):
         """Save auto-stopped task to database (thread-safe)"""
@@ -509,7 +512,7 @@ class MassDMService:
             from database_adapter import MassDMDatabaseAdapter
             await MassDMDatabaseAdapter.save_auto_stopped_task(stop_key, user_id, stats, reason)
         except Exception as e:
-            print(f"Error saving auto-stopped task: {e}")
+            logger.warning("Error saving auto-stopped task: %s", e)
     
     async def get_active_tasks(self) -> Dict[int, Dict[str, Any]]:
         """Get all active tasks (thread-safe)"""
@@ -535,5 +538,5 @@ class MassDMService:
             from database import get_all_auto_stopped_tasks_for_user
             return await get_all_auto_stopped_tasks_for_user(user_id)
         except Exception as e:
-            print(f"Error getting auto-stopped tasks: {e}")
+            logger.warning("Error getting auto-stopped tasks: %s", e)
             return []

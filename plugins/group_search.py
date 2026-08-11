@@ -40,10 +40,10 @@ async def group_search_message_handler(client: Client, message: Message):
     uid = message.from_user.id
     state = user_states.get(uid)
     
-    logger.info(f"[GROUP_SEARCH] Handler called for user {uid}, state: {state}")
+    logger.debug(f"[GROUP_SEARCH] Handler called for user {uid}, state: {state}")
     
     if state != GROUP_SEARCH_STATE:
-        logger.info(f"[GROUP_SEARCH] User {uid} not in group search state, skipping")
+        logger.debug(f"[GROUP_SEARCH] User {uid} not in group search state, skipping")
         raise ContinuePropagation
     
     query = message.text.strip()

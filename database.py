@@ -5,6 +5,9 @@ from contextlib import asynccontextmanager
 from config import DB_PATH
 
 import asyncio
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Write lock for serialized database updates (inserts, updates, deletes, replaces, alters)
 db_write_lock = asyncio.Lock()
@@ -428,7 +431,7 @@ async def init_db():
 
         except Exception as recovery_err:
             # Shield startup from crashing due to recovery check failures
-            print(f"Error checking and recovering interrupted tasks on startup: {recovery_err}")
+            logger.warning("Error checking and recovering interrupted tasks on startup: %s", recovery_err)
 
 
 async def get_user_subscription(user_id):

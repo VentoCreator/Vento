@@ -388,7 +388,7 @@ async def chat_message_handler(client: Client, message: Message):
     state = user_states.get(uid)
     text = message.text.strip()
     
-    logger.info(f"[CHAT] uid={uid}, state={state}, text={text}")
+    logger.debug(f"[CHAT] uid={uid}, state={state}, text={text}")
     
     if state and (state.startswith("waiting_for_timer_message_") or 
                   state.startswith("waiting_for_timer_interval_") or

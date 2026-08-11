@@ -270,7 +270,7 @@ class TimerManager:
                     timer.repeat_count, timer.repeat_delay
                 )
             except Exception as e:
-                print(f"Error saving timer to database: {e}")
+                logger.warning("Error saving timer to database: %s", e)
             
             return timer
     
@@ -288,7 +288,7 @@ class TimerManager:
                     from database_adapter import UtagDatabaseAdapter
                     await UtagDatabaseAdapter.delete_timer(user_id, chat_id)
                 except Exception as e:
-                    print(f"Error deleting timer from database: {e}")
+                    logger.warning("Error deleting timer from database: %s", e)
                 
                 return True
             return False
@@ -328,9 +328,9 @@ class TimerManager:
                         timer = TimerTask.from_dict(timer_data)
                         self.timers[user_id].append(timer)
             
-            print(f"Loaded {len(all_timers)} timers from database")
+            logger.info("Loaded %d timers from database", len(all_timers))
         except Exception as e:
-            print(f"Error loading timers from database: {e}")
+            logger.warning("Error loading timers from database: %s", e)
     
     async def update_timer_last_sent(self, user_id: int, chat_id: int):
         """Update timer last sent timestamp in memory and database"""
@@ -347,7 +347,7 @@ class TimerManager:
                                 user_id, chat_id, int(timer.last_sent)
                             )
                         except Exception as e:
-                            print(f"Error updating timer in database: {e}")
+                            logger.warning("Error updating timer in database: %s", e)
                         break
     
     async def mark_timer_sent(self, timer: TimerTask):
@@ -413,7 +413,7 @@ class UtagService:
             
             return custom_cmd
         except Exception as e:
-            print(f"Error getting user command preference: {e}")
+            logger.warning("Error getting user command preference: %s", e)
             return command_type  # Fallback to default
     
     async def set_user_command(self, user_id: int, command_type: str, custom_command: str) -> bool:
@@ -430,7 +430,7 @@ class UtagService:
             
             return success
         except Exception as e:
-            print(f"Error setting user command preference: {e}")
+            logger.warning("Error setting user command preference: %s", e)
             return False
     
     async def add_custom_command(self, user_id: int, command: str, message: str) -> tuple[bool, str]:

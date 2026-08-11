@@ -4,6 +4,7 @@ Login Core - Authentication business logic
 import os
 import shutil
 import asyncio
+import logging
 from typing import Optional, Tuple, Dict, Any
 from pyrogram import Client, StopPropagation
 from pyrogram.errors import (
@@ -14,6 +15,8 @@ from pyrogram.errors import (
 )
 
 from login_system.login_states import LoginState, LoginSession, LoginStateManager
+
+logger = logging.getLogger(__name__)
 
 
 class LoginError(Exception):
@@ -81,7 +84,7 @@ class SessionManager:
             
             return True
         except Exception as e:
-            print(f"Session move error: {e}")
+            logger.warning("Session move error: %s", e)
             return False
     
     def session_exists(self, user_id: int) -> bool:
@@ -220,7 +223,7 @@ class AuthManager:
                 
             except Exception as db_error:
                 # Don't fail login if database save fails
-                print(f"Database save failed (non-critical): {db_error}")
+                logger.warning("Database save failed (non-critical): %s", db_error)
             
             return True
             

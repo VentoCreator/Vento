@@ -230,9 +230,9 @@ async def custom_utag_command_handler(client: Client, message: Message):
     chat_id = message.chat.id
     
     text = message.text.strip()
-    logger.info(f"[UTAG_DEBUG] STEP 1: handler entered | user_id={user_id} chat_id={chat_id} text={message.text!r}")
+    logger.debug(f"[UTAG_DEBUG] STEP 1: handler entered | user_id={user_id} chat_id={chat_id} text={message.text!r}")
     if not text.startswith('.'):
-        logger.info(f"[UTAG_DEBUG] STEP 1: RETURN - text does not start with '.': {text!r}")
+        logger.debug(f"[UTAG_DEBUG] STEP 1: RETURN - text does not start with '.': {text!r}")
         return
     
     parts = text[1:].split()
@@ -2063,7 +2063,7 @@ async def utag_timer_background_task(client: Client):
                         if repeat_count == 999999:
                             # Diagnostic: log timer message destination
                             is_group = timer["chat_id"] < 0 if isinstance(timer["chat_id"], int) else False
-                            logger.info(
+                            logger.debug(
                                 f"[UTAG_TIMER_DIAG] Sending timer message | "
                                 f"chat_id={timer['chat_id']} | "
                                 f"is_group={is_group} | "
