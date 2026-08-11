@@ -1,0 +1,4 @@
+pyrotgfork==2.2.24
+TgCrypto
+aiosqlite
+psutil
