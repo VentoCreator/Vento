@@ -79,7 +79,6 @@ monitor.py
 read_console.ps1
 read_successful_payment.py
 scratch_inspector.py
-spambot_unlock.py
 test_*.py
 test_*_out.txt
 db_out.txt
