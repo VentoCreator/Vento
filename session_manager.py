@@ -40,6 +40,21 @@ async def cleanup_idle_clients():
                     except:
                         pass
 
+def _build_user_client(user_id: int) -> Client:
+    """Create a fresh userbot Client object for the given user."""
+    session_name = os.path.join(SESSIONS_DIR, f"user_{user_id}")
+    return Client(
+        session_name,
+        api_id=API_ID,
+        api_hash=API_HASH,
+        workdir=BASE_DIR,
+        no_updates=True,
+        device_model="Vento Client",
+        app_version="Vento Userbot v3.0",
+        system_version="Windows 11 Pro 24H2"
+    )
+
+
 async def get_user_client(user_id: int) -> Client:
     """Foydalanuvchi sessiyasini xotirada saqlaydi va ulanishni ochiq qoldiradi."""
     global _cleanup_task
@@ -54,39 +69,37 @@ async def get_user_client(user_id: int) -> Client:
     user_lock = get_user_lock(user_id)
     async with user_lock:
         _client_last_used[user_id] = time.time()
-        if user_id in _user_clients:
-            client = _user_clients[user_id]
-        else:
-            if len(_user_clients) >= MAX_CONCURRENT_SESSIONS:
-                raise Exception(f"⚠️ Serverda hozircha ko'p sessiya ochiq! Iltimos, keyinroq urinib ko'ring.")
-            
-            session_name = os.path.join(SESSIONS_DIR, f"user_{user_id}")
-            client = Client(
-                session_name,
-                api_id=API_ID,
-                api_hash=API_HASH,
-                workdir=BASE_DIR,
-                no_updates=True,
-                device_model="Vento Client",
-                app_version="Vento Userbot v3.0",
-                system_version="Windows 11 Pro 24H2"
-            )
-            _user_clients[user_id] = client
 
-        if not client.is_connected:
-            try:
-                await client.connect()
-            except (AuthKeyUnregistered, AuthKeyDuplicated, SessionExpired, SessionRevoked):
-                _user_clients.pop(user_id, None)
-                _client_last_used.pop(user_id, None)
-                # Sessiya faylini o'chirmaymiz - Owner panelida akkaunt qaytarish uchun kerak
+        client = _user_clients.get(user_id)
+        # Only a client that is ALREADY connected has an open session + storage that can be
+        # safely reused. In this Pyrogram fork, Client.disconnect() CLOSES the client's session
+        # storage database and nulls client.session, so calling connect() again on a disconnected
+        # Client object fails with "Cannot operate on a closed database" and silently kills the
+        # session (its receiver never restarts). Therefore any cached-but-disconnected client is
+        # always replaced with a brand new Client instead of being reconnected in place. This is
+        # the root-cause fix for sessions that appear connected but never receive updates again.
+        if client is not None and client.is_connected:
+            return client
+
+        if client is None and len(_user_clients) >= MAX_CONCURRENT_SESSIONS:
+            raise Exception(f"⚠️ Serverda hozircha ko'p sessiya ochiq! Iltimos, keyinroq urinib ko'ring.")
+
+        client = _build_user_client(user_id)
+        _user_clients[user_id] = client
+
+        try:
+            await client.connect()
+        except (AuthKeyUnregistered, AuthKeyDuplicated, SessionExpired, SessionRevoked):
+            _user_clients.pop(user_id, None)
+            _client_last_used.pop(user_id, None)
+            # Sessiya faylini o'chirmaymiz - Owner panelida akkaunt qaytarish uchun kerak
+            raise Exception("sessiya tugagan")
+        except Exception as e:
+            _user_clients.pop(user_id, None)
+            _client_last_used.pop(user_id, None)
+            if "sessiya" in str(e).lower() or "session" in str(e).lower():
                 raise Exception("sessiya tugagan")
-            except Exception as e:
-                _user_clients.pop(user_id, None)
-                _client_last_used.pop(user_id, None)
-                if "sessiya" in str(e).lower() or "session" in str(e).lower():
-                    raise Exception("sessiya tugagan")
-                raise e
+            raise e
 
         return client
 

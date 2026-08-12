@@ -80,7 +80,20 @@ class SafeDatabaseConnection:
         return SafeCursorContextManager(self, _run)
 
     async def commit(self):
-        res = await self._conn.commit()
+        try:
+            res = await self._conn.commit()
+        except Exception:
+            # Roll back so we never leave a lingering, un-committed write transaction open on
+            # this connection (an open writer is what makes other connections/processes report
+            # "database is locked"), then ensure the process-wide write lock is released.
+            try:
+                await self._conn.rollback()
+            except Exception:
+                pass
+            if self._write_locked:
+                db_write_lock.release()
+                self._write_locked = False
+            raise
         if self._write_locked:
             db_write_lock.release()
             self._write_locked = False
@@ -124,6 +137,14 @@ async def get_db_connection():
         yield safe_conn
     finally:
         if safe_conn._write_locked:
+            # A write was performed but never committed/rolled back while the connection was in
+            # use. Roll it back before closing so no lingering write transaction is left open that
+            # could block other connections/processes ("database is locked"), then release the
+            # process-wide write lock so the next write cannot deadlock on it.
+            try:
+                await conn.rollback()
+            except Exception:
+                pass
             db_write_lock.release()
             safe_conn._write_locked = False
         await conn.close()

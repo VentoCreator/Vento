@@ -101,23 +101,63 @@ async def main():
     
     logger.info("Bot tayyor! Smart plaginlar yuklandi.")
 
-    asyncio.create_task(subscription_checker())
+    # Keep a reference to every fire-and-forget task AND attach a done-callback so that, if a
+    # background task dies with an exception (which otherwise silently becomes "Task exception was
+    # never retrieved" and permanently disables that subsystem while the event loop keeps running),
+    # the failure is logged instead of disappearing. The references also prevent the tasks from
+    # being garbage-collected mid-flight.
+    await _spawn_guarded("Subscription Checker", subscription_checker())
     logger.info("Obuna tekshiruvchi (Subscription Checker) ishga tushdi.")
     
-    asyncio.create_task(utag_timer_background_task(app))
+    await _spawn_guarded("UTAG Timer", utag_timer_background_task(app))
     logger.info("UTAG Timer (avtomatik /game) ishga tushdi.")
     
     await queue_manager.start()
     logger.info("Queue manager ishga tushdi.")
     
     # Start login system cleanup task
-    asyncio.create_task(_login_cleanup_task())
+    await _spawn_guarded("Login Cleanup", _login_cleanup_task())
     logger.info("Login system cleanup task ishga tushdi.")
     
     await idle()
     
     await app.stop()
     logger.info("Bot to'xtatildi.")
+
+
+# Strong references to every supervised background task so they are never garbage-collected and so
+# their completion is observable (a task exception is no longer silently swallowed).
+_background_tasks: set = set()
+
+
+def _log_task_failure(future: asyncio.Task):
+    if future.cancelled():
+        logger.warning("[BACKGROUND] A background task was cancelled.")
+        return
+    exc = future.exception()
+    if exc is not None:
+        logger.exception(
+            "[BACKGROUND] A background task died with an unhandled exception. "
+            "The affected subsystem is no longer running: %r", exc,
+            exc_info=(type(exc), exc, exc.__traceback__)
+        )
+    _background_tasks.discard(future)
+
+
+async def _spawn_guarded(name: str, coroutine) -> asyncio.Task:
+    """Create a fire-and-forget task, but retain a reference and log any failure.
+
+    The framework and this bot spawn many tasks with ``asyncio.create_task(...)`` and never keep a
+    reference nor a done-callback, so when one raises it is reported only as *"Task exception was
+    never retrieved"* and the corresponding subsystem silently stops while the event loop keeps
+    running (exactly the "bot stopped responding but the timer still ticks" symptom). This helper
+    makes those failures visible and prevents silent task loss.
+    """
+    task = asyncio.create_task(coroutine)
+    _background_tasks.add(task)
+    task.add_done_callback(_log_task_failure)
+    logger.info("Background task started: %s", name)
+    return task
 
 
 async def _login_cleanup_task():
