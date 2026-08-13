@@ -620,9 +620,9 @@ class UtagService:
                 "consecutive_failures": 0
             }
             
-            # Start background tagging loop
-            task = asyncio.create_task(
-                self._run_tagging_process(
+                        # Start background tagging loop
+            from task_supervisor import schedule_guarded
+            task = schedule_guarded("UTAG Tagging Task", self._run_tagging_process(
                     user_id, chat_id, client, user_client, members, 
                     tag_message, use_random_messages, settings, stop_flag, pause_flag
                 )

@@ -110,7 +110,8 @@ async def update_state_handler(client: Client, message: Message):
         
         date_str = datetime.fromtimestamp(int(time.time())).strftime("%d.%m.%Y %H:%M")
         
-        asyncio.create_task(send_update_notification(client, update_id, title))
+        from task_supervisor import schedule_guarded
+        schedule_guarded("Update Notification", send_update_notification(client, update_id, title))
         
         await message.reply_text(
             f"✅ **Yangilanish qo'shildi!**\n\n"

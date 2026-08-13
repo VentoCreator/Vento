@@ -1155,7 +1155,8 @@ async def baza_state_handler(client: Client, message: Message):
             ])
         )
         
-        asyncio.create_task(run_adder_task(client, message, uid, gid, target_group))
+        from task_supervisor import schedule_guarded
+        schedule_guarded("Database Adder Task", run_adder_task(client, message, uid, gid, target_group))
         return
 
     if state == "waiting_baza_new_manual":

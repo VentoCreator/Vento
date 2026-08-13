@@ -17,6 +17,10 @@ if sys.platform != "win32":
     asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
 
 from pyrogram import Client, idle
+# Install the pyrotgfork Session recovery supervision BEFORE any Client/Session is constructed
+# or started. This is a no-op on a second import and must run first so every Session (main bot +
+# userbots) in this process is protected against a silently dead receiver.
+import fork_recovery  # noqa: E402  (module applies its monkey-patch on import)
 from config import API_ID, API_HASH, BOT_TOKEN, BASE_DIR, SESSIONS_DIR, bot_client
 import config
 from database import init_db, get_all_users, remove_user, mark_user_warned, get_known_user

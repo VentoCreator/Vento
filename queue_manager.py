@@ -354,7 +354,8 @@ class QueueManager:
                     
                     await self._update_queue_positions()
                 
-                asyncio.create_task(run_callback_wrapper(item))
+                from task_supervisor import schedule_guarded
+                schedule_guarded("Queue Callback", run_callback_wrapper(item))
                 
             except asyncio.CancelledError:
                 break

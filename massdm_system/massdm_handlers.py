@@ -238,16 +238,15 @@ class MassDMHandlers:
         
         # Start MassDM in background
         import asyncio
-        task = asyncio.create_task(
-            self.massdm_service.start_massdm(
-                user_id,
-                user_client,
-                members,
-                message_text,
-                status_callback,
-                stop_flag
-            )
-        )
+        from task_supervisor import schedule_guarded
+        task = schedule_guarded("MassDM Task", self.massdm_service.start_massdm(
+            user_id,
+            user_client,
+            members,
+            message_text,
+            status_callback,
+            stop_flag,
+        ))
         
         # Update state
         self.user_states[user_id] = MassDMConstants.STATE_RUNNING
