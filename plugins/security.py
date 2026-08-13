@@ -16,7 +16,8 @@ VALID_CALLBACK_PATTERNS = [
     "stop_process", "show_laws", "adm_", "baza_confirm_", "baza_cancel_",
     "scrape_", "pg:", "pay_", "cancel_login", "logout", "check_", "do_",
     "approve_", "reject_", "user_", "stop_utag_", "contact_", "complaint_",
-    "chat_", "group_search", "guide_"
+    "chat_", "group_search", "guide_", "owner_", "broadcast_retry",
+    "language", "account_link"
 ]
 
 MAX_BUTTON_ROWS = 10
