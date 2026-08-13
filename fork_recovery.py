@@ -5,11 +5,11 @@ Deployable, minimal recovery patch for ``pyrotgfork==2.2.24``.
 
 WHY IT IS NEEDED (exact failure path, verified against the installed fork)
 --------------------------------------------------------------------------
-The Telegram receive path is driven by ``Session.recv_worker()``. When the TCP link drops,
+The Telegram receive path is driven by ``Session.network_worker()``. When the TCP link drops,
 ``Connection.recv()`` -> ``TCP.recv()`` NEVER raises: it returns ``None`` on timeout/OSError/EOF.
-So ``recv_worker`` does not die on its own - it schedules a recovery and ``break``s via an
-unmanaged ``self.client.loop.create_task(self.restart())`` (session.py lines 218, 292, 356, 416,
-462). No reference is retained and no done-callback is attached, so:
+So ``network_worker`` does not die on its own - it schedules a recovery and ``break``s via an
+unmanaged ``self.client.loop.create_task(self.restart())`` (session.py line 327).
+No reference is retained and no done-callback is attached, so:
 
 * ``Session.start()`` raises e.g. ``TimeoutError`` (builtin, from the initial Ping/InitConnection
   timing out on a half-open socket) -> its ``except Exception`` branch does ``stop(); raise``.
@@ -28,32 +28,34 @@ Replace ``Session.restart`` with one coalesced, supervised recovery loop that:
   * keeps a single in-flight flag so only ONE recovery runs at a time (no duplicate receivers,
     no reconnect churn, no multiple concurrent Session objects);
   * retries with capped backoff and logs every failure (the receiver's restart is supervised);
-  * VERIFIES the session actually reached STARTED (``is_started``) before declaring success -
+  * VERIFIES the session actually reached STARTED (``is_connected``) before declaring success -
     covering the silent "start() returned without STARTED" case;
   * stops retrying only when the session was deliberately stopped or the client disconnected.
-Wrap ``recv_worker`` / ``ping_worker`` so any unexpected exception is logged and funnels into the
+Wrap ``network_worker`` / ``ping_worker`` so any unexpected exception is logged and funnels into the
 same supervised recovery instead of silently killing the worker.
 
 This keeps the original ``start``/``stop``/``handle_packet``/``connect`` behaviour untouched; only
-`restart`, `recv_worker` and `ping_worker` are monkey-patched, so the change is minimal and
+`restart`, `network_worker` and `ping_worker` are monkey-patched, so the change is minimal and
 reproducible on a stock ``pip install pyrotgfork==2.2.24`` environment.
 """
 import asyncio
 import logging
 
-from pyrogram.session.session import Session, SessionState
+from pyrogram.session.session import Session
 
 log = logging.getLogger("ventofork.recovery")
 
 _installed = False
 # Originals captured before patching (raw unbound functions, callable as func(session)).
-_orig_recv_worker = None
+_orig_network_worker = None
 _orig_ping_worker = None
 
 
 def _should_stop_retrying(session) -> bool:
     """Stop auto-recovery when the session was deliberately torn down or the client disconnected."""
-    return session._state == SessionState.STOPPED or not getattr(
+    # pyrotgfork 2.2.24 uses is_connected Event instead of SessionState enum
+    # Only stop if the client is disconnected, not if the session's is_connected is temporarily clear during restart
+    return not getattr(
         getattr(session, "client", None), "is_connected", True
     )
 
@@ -74,7 +76,12 @@ async def _restart(session):
         while True:
             attempt += 1
             try:
-                async with session.restart_lock:
+                # pyrotgfork 2.2.24 may not have restart_lock; use it if available
+                if hasattr(session, 'restart_lock'):
+                    async with session.restart_lock:
+                        await session.stop()
+                        await session.start()
+                else:
                     await session.stop()
                     await session.start()
             except asyncio.CancelledError:
@@ -90,14 +97,14 @@ async def _restart(session):
                 delay = min(delay * 2, 30)
                 continue
 
-            if session.is_started.is_set():
+            if session.is_connected.is_set():
                 log.warning("[recovery] %s: Session recovered after %d attempt(s).", session.client.name, attempt)
                 return
 
-            # start() returned without reaching STARTED (the fork's OSError/RPCError branch
+            # start() returned without reaching CONNECTED (the fork's OSError/RPCError branch
             # schedules a nested, now no-op restart and returns). Treat as a failed attempt.
             log.warning(
-                "[recovery] %s: Session.start returned without STARTED (attempt %d); retrying.",
+                "[recovery] %s: Session.start returned without CONNECTED (attempt %d); retrying.",
                 session.client.name, attempt,
             )
             if _should_stop_retrying(session):
@@ -117,10 +124,10 @@ def _request_recovery(session):
         pass
 
 
-async def _recv_worker(session):
-    """Supervised recv_worker: an unexpected inside-failure is logged and triggers recovery."""
+async def _network_worker(session):
+    """Supervised network_worker: an unexpected inside-failure is logged and triggers recovery."""
     try:
-        await _orig_recv_worker(session)
+        await _orig_network_worker(session)
     except asyncio.CancelledError:
         raise
     except Exception as e:
@@ -141,17 +148,17 @@ async def _ping_worker(session):
 
 def install():
     """Monkey-patch the Session class. Idempotent."""
-    global _installed, _orig_recv_worker, _orig_ping_worker
+    global _installed, _orig_network_worker, _orig_ping_worker
     if _installed:
         return
-    _orig_recv_worker = Session.recv_worker
+    _orig_network_worker = Session.network_worker
     _orig_ping_worker = Session.ping_worker
-    Session.recv_worker = _recv_worker
+    Session.network_worker = _network_worker
     Session.ping_worker = _ping_worker
     Session.restart = _restart
     Session._request_recovery = _request_recovery
     _installed = True
-    log.warning("[recovery] pyrotgfork Session recovery supervision installed (recv_worker/ping_worker/restart patched).")
+    log.warning("[recovery] pyrotgfork Session recovery supervision installed (network_worker/ping_worker/restart patched).")
 
 
 install()
