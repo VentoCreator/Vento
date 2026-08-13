@@ -21,6 +21,8 @@ from pyrogram import Client, idle
 # or started. This is a no-op on a second import and must run first so every Session (main bot +
 # userbots) in this process is protected against a silently dead receiver.
 import fork_recovery  # noqa: E402  (module applies its monkey-patch on import)
+# Install Vento diagnostic supervision for the Telegram update path
+import vento_supervision  # noqa: E402
 from config import API_ID, API_HASH, BOT_TOKEN, BASE_DIR, SESSIONS_DIR, bot_client
 import config
 from database import init_db, get_all_users, remove_user, mark_user_warned, get_known_user
@@ -101,6 +103,12 @@ async def main():
     
     logger.info("Bot ishga tushmoqda...")
     config.bot_client = app
+    
+    # Install Vento diagnostic supervision BEFORE starting the client
+    # so that dispatcher workers are created with instrumentation
+    vento_supervision.install_vento_supervision(app)
+    logger.info("Vento diagnostic supervision installed.")
+    
     await app.start()
     
     logger.info("Bot tayyor! Smart plaginlar yuklandi.")
