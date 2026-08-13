@@ -4,6 +4,7 @@ import time
 from pyrogram import Client
 from pyrogram.errors import AuthKeyUnregistered, AuthKeyDuplicated, SessionExpired, SessionRevoked
 from config import API_ID, API_HASH, SESSIONS_DIR, BASE_DIR
+from task_supervisor import schedule_guarded
 
 _user_clients = {}
 _client_last_used = {}
@@ -59,7 +60,7 @@ async def get_user_client(user_id: int) -> Client:
     """Foydalanuvchi sessiyasini xotirada saqlaydi va ulanishni ochiq qoldiradi."""
     global _cleanup_task
     if _cleanup_task is None:
-        _cleanup_task = asyncio.create_task(cleanup_idle_clients())
+        _cleanup_task = schedule_guarded("SessionCleanup", cleanup_idle_clients())
 
     # Sessiya fayli mavjudligini tekshirish
     session_file = os.path.join(SESSIONS_DIR, f"user_{user_id}.session")

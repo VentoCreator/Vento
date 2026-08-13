@@ -50,6 +50,23 @@ _installed = False
 _orig_network_worker = None
 _orig_ping_worker = None
 
+# Strong references to recovery tasks to prevent GC and enable failure logging
+_recovery_tasks: set = set()
+
+
+def _log_recovery_task_done(future: asyncio.Task):
+    """Done callback for recovery tasks - logs failures and cleans up registry."""
+    if future.cancelled():
+        log.warning("[recovery] Recovery task was cancelled")
+    else:
+        exc = future.exception()
+        if exc is not None:
+            log.exception(
+                "[recovery] Recovery task failed with unhandled exception",
+                exc_info=(type(exc), exc, exc.__traceback__)
+            )
+    _recovery_tasks.discard(future)
+
 
 def _should_stop_retrying(session) -> bool:
     """Stop auto-recovery when the session was deliberately torn down or the client disconnected."""
@@ -118,7 +135,9 @@ async def _restart(session):
 def _request_recovery(session):
     """Coalesced entry point for all recovery. `_restart` itself is idempotent (in-flight flag)."""
     try:
-        session.client.loop.create_task(_restart(session))
+        task = session.client.loop.create_task(_restart(session))
+        _recovery_tasks.add(task)
+        task.add_done_callback(_log_recovery_task_done)
     except (RuntimeError, AttributeError):
         # Event loop not running / client absent - nothing schedulable right now.
         pass
