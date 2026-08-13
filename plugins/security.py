@@ -16,7 +16,7 @@ VALID_CALLBACK_PATTERNS = [
     "stop_process", "show_laws", "adm_", "baza_confirm_", "baza_cancel_",
     "scrape_", "pg:", "pay_", "cancel_login", "logout", "check_", "do_",
     "approve_", "reject_", "user_", "stop_utag_", "contact_", "complaint_",
-    "chat_", "group_search", "guide_", "owner_", "broadcast_retry",
+    "complaints_", "chat_", "group_search", "guide_", "owner_", "broadcast_retry",
     "language", "account_link"
 ]
 
@@ -176,7 +176,7 @@ async def banned_callback_middleware(client: Client, callback_query: CallbackQue
     if not check_rate_limit(callback_query.from_user.id):
         await callback_query.answer("⚠️ Juda ko'p so'rov!", show_alert=True)
         raise StopPropagation
-    
+
     raise ContinuePropagation
 
 @Client.on_callback_query(filters.regex("^show_laws$"))

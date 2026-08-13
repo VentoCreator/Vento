@@ -95,9 +95,9 @@ async def confirm_language_callback(client: Client, callback_query):
         start_message = get_text("start", lang_code)
         logger.info("[LANGUAGE] Start xabari yuborilmoqda: %s...", start_message[:50])
         
-        from database import is_admin
+        from config import is_admin
         keyboard = None
-        if await is_admin(user_id):
+        if is_admin(user_id):
             keyboard = InlineKeyboardMarkup([
                 [InlineKeyboardButton(get_text("admin_panel", lang_code), callback_data="admin_panel")]
             ])
