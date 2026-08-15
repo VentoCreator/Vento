@@ -13,6 +13,9 @@ from database import (
 )
 from config import user_states, is_admin, is_owner, SUPER_ADMIN_ID
 from rate_limiter import check_rate_limit
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 CHAT_STATE_VIEWING_CHATS = "chat_viewing_chats"
@@ -380,9 +383,6 @@ async def chat_message_handler(client: Client, message: Message):
     """Chat xabarlarni qabul qilish"""
     from config import user_states
     from pyrogram import ContinuePropagation
-    import logging
-    
-    logger = logging.getLogger(__name__)
     
     uid = message.from_user.id
     state = user_states.get(uid)

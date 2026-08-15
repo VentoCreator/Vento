@@ -18,11 +18,14 @@ from database import (
 )
 import time
 import asyncio
+import logging
 from datetime import datetime
 from rate_limiter import check_rate_limit
 from spambot_unlock import send_and_check_unlock, check_if_locked
 from queue_manager import get_all_active_tasks, terminate_user_task
 from config import ADMIN_REPORT_CHAT_ID
+
+logger = logging.getLogger(__name__)
 
 
 def admin_filter(_, __, message: Message):
