@@ -596,46 +596,64 @@ async def chat_invite_username_callback(client: Client, cq: CallbackQuery):
 @Client.on_callback_query(filters.regex("^owner_chat_monitor$"))
 async def owner_chat_monitor_callback(client: Client, cq: CallbackQuery):
     """Owner uchun barcha chatlarni ko'rish"""
-    uid = cq.from_user.id
+    import time
+    start_time = time.time()
+    logger.info("[DIAG] HANDLER_START: handler=owner_chat_monitor_callback callback_data=%s", cq.data)
     
-    if not is_owner(uid):
-        await cq.answer("⛔️ Sizda huquq yo'q!", show_alert=True)
-        return
-    
-    chats = await get_all_chats_for_owner(limit=50)
-    
-    if not chats:
+    try:
+        uid = cq.from_user.id
+        
+        if not is_owner(uid):
+            logger.info("[DIAG] OWNER_CHECK_FAILED: user_id=%d", uid)
+            await cq.answer("⛔️ Sizda huquq yo'q!", show_alert=True)
+            return
+        
+        chats = await get_all_chats_for_owner(limit=50)
+        
+        if not chats:
+            await cq.message.edit_text(
+                "👁️ **Chat monitoring**\n\n"
+                "Hali chatlar yo'q.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔙 Bosh menyu", callback_data="menu_main")]
+                ])
+            )
+            await cq.answer()
+            
+            duration_ms = (time.time() - start_time) * 1000
+            logger.info("[DIAG] HANDLER_END: handler=owner_chat_monitor_callback duration_ms=%.2f (no chats)", duration_ms)
+            return
+        
+        keyboard = []
+        for chat in chats[:20]:
+            user1 = chat["user1"]
+            user2 = chat["user2"]
+            msg_count = chat["message_count"]
+            time_str = await format_timestamp(chat["last_timestamp"])
+            keyboard.append([
+                InlineKeyboardButton(
+                    f"💬 {user1} ↔ {user2} ({msg_count} msg) [{time_str}]",
+                    callback_data=f"owner_view_chat_{user1}_{user2}"
+                )
+            ])
+        
+        keyboard.append([InlineKeyboardButton("🔙 Bosh menyu", callback_data="menu_main")])
+        
         await cq.message.edit_text(
             "👁️ **Chat monitoring**\n\n"
-            "Hali chatlar yo'q.",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔙 Bosh menyu", callback_data="menu_main")]
-            ])
+            "Barcha chatlar:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
         await cq.answer()
-        return
-    
-    keyboard = []
-    for chat in chats[:20]:
-        user1 = chat["user1"]
-        user2 = chat["user2"]
-        msg_count = chat["message_count"]
-        time_str = await format_timestamp(chat["last_timestamp"])
-        keyboard.append([
-            InlineKeyboardButton(
-                f"💬 {user1} ↔ {user2} ({msg_count} msg) [{time_str}]",
-                callback_data=f"owner_view_chat_{user1}_{user2}"
-            )
-        ])
-    
-    keyboard.append([InlineKeyboardButton("🔙 Bosh menyu", callback_data="menu_main")])
-    
-    await cq.message.edit_text(
-        "👁️ **Chat monitoring**\n\n"
-        "Barcha chatlar:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-    await cq.answer()
+        
+        duration_ms = (time.time() - start_time) * 1000
+        logger.info("[DIAG] HANDLER_END: handler=owner_chat_monitor_callback duration_ms=%.2f", duration_ms)
+        if duration_ms > 2000:
+            logger.warning("[DIAG] HANDLER_SLOW: handler=owner_chat_monitor_callback duration_ms=%.2f", duration_ms)
+    except Exception as e:
+        duration_ms = (time.time() - start_time) * 1000
+        logger.error("[DIAG] HANDLER_ERROR: handler=owner_chat_monitor_callback duration_ms=%.2f error=%s", duration_ms, e, exc_info=True)
+        raise
 
 @Client.on_callback_query(filters.regex("^owner_view_chat_(\\d+)_(\\d+)$"))
 async def owner_view_chat_callback(client: Client, cq: CallbackQuery):

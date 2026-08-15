@@ -123,39 +123,56 @@ def secure_keyboard(keyboard):
 
 @Client.on_message(filters.all & filters.private, group=-1)
 async def banned_user_middleware(client: Client, message: Message):
+    # DIAGNOSTIC: Log message
+    msg_text = message.text[:50] if message.text else ""
+    security_logger.debug("[DIAG] MESSAGE_RECEIVED: text=%s user_id=%d", msg_text, message.from_user.id if message.from_user else None)
+    
     if not message.from_user:
+        security_logger.debug("[DIAG] MESSAGE_BLOCKED: no from_user")
         raise ContinuePropagation
 
     if message.from_user.id in ADMIN_IDS:
+        security_logger.debug("[DIAG] MESSAGE_BYPASS: admin user_id=%d", message.from_user.id)
         raise ContinuePropagation
 
     count = await get_violation_count(message.from_user.id)
     if count > 0:
+        security_logger.warning("[DIAG] MESSAGE_BLOCKED: violation_count=%d user_id=%d", count, message.from_user.id)
         raise StopPropagation
 
     if not check_rate_limit(message.from_user.id):
+        security_logger.warning("[DIAG] MESSAGE_BLOCKED: rate_limit user_id=%d", message.from_user.id)
         await message.reply_text("⚠️ Juda ko'p so'rov! Iltimos, biroz kutib turing.")
         raise StopPropagation
     
+    security_logger.debug("[DIAG] MESSAGE_ALLOWED: text=%s user_id=%d", msg_text, message.from_user.id)
     raise ContinuePropagation
 
 @Client.on_callback_query(group=-1)
 async def banned_callback_middleware(client: Client, callback_query: CallbackQuery):
+    # DIAGNOSTIC: Log callback data
+    security_logger.debug("[DIAG] CALLBACK_RECEIVED: data=%s user_id=%d", callback_query.data, callback_query.from_user.id if callback_query.from_user else None)
+    
     if not callback_query.from_user:
+        security_logger.debug("[DIAG] CALLBACK_BLOCKED: no from_user")
         raise ContinuePropagation
 
     if callback_query.from_user.id in ADMIN_IDS:
+        security_logger.debug("[DIAG] CALLBACK_BYPASS: admin user_id=%d", callback_query.from_user.id)
         raise ContinuePropagation
 
     if callback_query.data == "show_laws":
+        security_logger.debug("[DIAG] CALLBACK_BYPASS: show_laws")
         raise ContinuePropagation # Allow them to read the laws
 
     count = await get_violation_count(callback_query.from_user.id)
     if count > 0:
+        security_logger.warning("[DIAG] CALLBACK_BLOCKED: violation_count=%d user_id=%d", count, callback_query.from_user.id)
         await callback_query.answer("Siz bloklangansiz!", show_alert=True)
         raise StopPropagation
 
     if not is_valid_callback_data(callback_query.data):
+        security_logger.warning("[DIAG] CALLBACK_BLOCKED: invalid_data=%s user_id=%d", callback_query.data, callback_query.from_user.id)
         should_notify = log_suspicious_activity(
             callback_query.from_user.id,
             "invalid_callback_data",
@@ -174,9 +191,11 @@ async def banned_callback_middleware(client: Client, callback_query: CallbackQue
         raise StopPropagation
 
     if not check_rate_limit(callback_query.from_user.id):
+        security_logger.warning("[DIAG] CALLBACK_BLOCKED: rate_limit user_id=%d", callback_query.from_user.id)
         await callback_query.answer("⚠️ Juda ko'p so'rov!", show_alert=True)
         raise StopPropagation
 
+    security_logger.debug("[DIAG] CALLBACK_ALLOWED: data=%s user_id=%d", callback_query.data, callback_query.from_user.id)
     raise ContinuePropagation
 
 @Client.on_callback_query(filters.regex("^show_laws$"))

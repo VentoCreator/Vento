@@ -235,6 +235,9 @@ def instrument_session_class():
     
     async def instrumented_handle_packet(self, packet):
         track_handle_packet()
+        # DIAGNOSTIC: Log packet type
+        packet_type = type(packet).__name__
+        log.debug("[DIAG] handle_packet called: packet_type=%s", packet_type)
         try:
             return await original_handle_packet(self, packet)
         except Exception as e:
@@ -256,11 +259,15 @@ def instrument_client_class():
     
     async def instrumented_handle_updates(self, updates):
         track_handle_updates()
+        # DIAGNOSTIC: Log updates batch info
+        update_count = len(updates.updates) if hasattr(updates, 'updates') else 1
+        log.debug("[DIAG] handle_updates called: update_count=%d", update_count)
         try:
             result = await original_handle_updates(self, updates)
             # Track successfully processed updates
-            for _ in range(len(updates.updates) if hasattr(updates, 'updates') else 1):
+            for _ in range(update_count):
                 track_updates_processed()
+            log.debug("[DIAG] handle_updates completed: update_count=%d", update_count)
             return result
         except Exception as e:
             log.error("[VENTO_SUPERVISION] handle_updates failed: %s", e, exc_info=True)
@@ -273,20 +280,33 @@ def instrument_client_class():
 def instrument_dispatcher(dispatcher):
     """Instrument Dispatcher for monitoring.
     
-    NOTE: This wraps handler_worker to log failures, but does NOT count individual
-    handler executions because that requires instrumenting inside the worker loop.
+    NOTE: This wraps handler_worker to log failures and timing, but does NOT count individual
+    handler executions because that requires instrumenting inside the worker loop which is
+    complex and risky without modifying Pyrogram's internal logic.
     """
+    import time
+    
     original_handler_worker = dispatcher.handler_worker
     
-    async def instrumented_handler_worker(lock):
+    async def timed_handler_worker(lock):
+        worker_id = id(lock)
+        log.debug("[DIAG] handler_worker started: worker_id=%d", worker_id)
+        start_time = time.time()
         try:
             await original_handler_worker(lock)
+            duration_ms = (time.time() - start_time) * 1000
+            log.debug("[DIAG] handler_worker completed: worker_id=%d duration_ms=%.2f", worker_id, duration_ms)
+            if duration_ms > 10000:
+                log.warning("[DIAG] HANDLER_HUNG_SUSPECT: worker_id=%d duration_ms=%.2f", worker_id, duration_ms)
+            elif duration_ms > 2000:
+                log.warning("[DIAG] HANDLER_SLOW: worker_id=%d duration_ms=%.2f", worker_id, duration_ms)
         except Exception as e:
-            log.error("[VENTO_SUPERVISION] handler_worker failed: %s", e, exc_info=True)
+            duration_ms = (time.time() - start_time) * 1000
+            log.error("[VENTO_SUPERVISION] handler_worker failed: %s worker_id=%d duration_ms=%.2f", e, worker_id, duration_ms, exc_info=True)
             track_handler_failure()
             raise
     
-    dispatcher.handler_worker = instrumented_handler_worker
+    dispatcher.handler_worker = timed_handler_worker
 
 
 def instrument_initialize(client):

@@ -1377,22 +1377,36 @@ async def admin_add_handler(client: Client, message: Message):
 @Client.on_callback_query(filters.regex("^admin_tag_messages$") & is_admin_callback_filter)
 async def admin_tag_messages_callback(client: Client, cq: CallbackQuery):
     """Tag matnlari ro'yxatini ko'rsatish"""
-    lines = ["💬 **Tag Matnlari Ro'yxati**\n\n"]
+    import time
+    start_time = time.time()
+    logger.info("[DIAG] HANDLER_START: handler=admin_tag_messages_callback callback_data=%s", cq.data)
     
-    for msg_id, msg_text in TAG_MESSAGES.items():
-        lines.append(f"**{msg_id}.** {msg_text}")
-    
-    lines.append(f"\n📊 Jami: **{len(TAG_MESSAGES)}** ta matn")
-    
-    text = "\n".join(lines)
-    
-    keyboard = [
-        [InlineKeyboardButton("➕ Yangi matn qo'shish", callback_data="admin_tag_add")],
-        [InlineKeyboardButton("🔙 Admin panel", callback_data="menu_admin")]
-    ]
-    
-    await cq.message.edit_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
-    await cq.answer()
+    try:
+        lines = ["💬 **Tag Matnlari Ro'yxati**\n\n"]
+        
+        for msg_id, msg_text in TAG_MESSAGES.items():
+            lines.append(f"**{msg_id}.** {msg_text}")
+        
+        lines.append(f"\n📊 Jami: **{len(TAG_MESSAGES)}** ta matn")
+        
+        text = "\n".join(lines)
+        
+        keyboard = [
+            [InlineKeyboardButton("➕ Yangi matn qo'shish", callback_data="admin_tag_add")],
+            [InlineKeyboardButton("🔙 Admin panel", callback_data="menu_admin")]
+        ]
+        
+        await cq.message.edit_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+        await cq.answer()
+        
+        duration_ms = (time.time() - start_time) * 1000
+        logger.info("[DIAG] HANDLER_END: handler=admin_tag_messages_callback duration_ms=%.2f", duration_ms)
+        if duration_ms > 2000:
+            logger.warning("[DIAG] HANDLER_SLOW: handler=admin_tag_messages_callback duration_ms=%.2f", duration_ms)
+    except Exception as e:
+        duration_ms = (time.time() - start_time) * 1000
+        logger.error("[DIAG] HANDLER_ERROR: handler=admin_tag_messages_callback duration_ms=%.2f error=%s", duration_ms, e, exc_info=True)
+        raise
 
 
 @Client.on_callback_query(filters.regex("^admin_tag_add$") & is_admin_callback_filter)
@@ -1414,29 +1428,43 @@ async def admin_tag_add_callback(client: Client, cq: CallbackQuery):
 @Client.on_callback_query(filters.regex("^admin_complaints$") & is_admin_callback_filter)
 async def admin_complaints_callback(client: Client, cq: CallbackQuery):
     """Shikoyatlar ro'yxatini ko'rsatish"""
-    complaints = await get_all_complaints(limit=20)
-    pending_count = await get_complaint_count("pending")
-    read_count = await get_complaint_count("read")
-    replied_count = await get_complaint_count("replied")
+    import time
+    start_time = time.time()
+    logger.info("[DIAG] HANDLER_START: handler=admin_complaints_callback callback_data=%s", cq.data)
     
-    text = (
-        f"📩 **Shikoyatlar**\n\n"
-        f"⏳ Kutilayotgan: **{pending_count}** ta\n"
-        f"📖 O'qilgan: **{read_count}** ta\n"
-        f"✅ Javob berilgan: **{replied_count}** ta\n\n"
-        f"**Jami: {pending_count + read_count + replied_count}** ta\n\n"
-        "Quyidagi bo'limlardan birini tanlang:"
-    )
-    
-    keyboard = [
-        [InlineKeyboardButton(f"⏳ Kutilayotgan ({pending_count})", callback_data="complaints_pending_0")],
-        [InlineKeyboardButton(f"📖 O'qilgan ({read_count})", callback_data="complaints_read_0")],
-        [InlineKeyboardButton(f"✅ Javob berilgan ({replied_count})", callback_data="complaints_replied_0")],
-        [InlineKeyboardButton("🔙 Admin panel", callback_data="menu_admin")],
-    ]
-    
-    await cq.message.edit_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
-    await cq.answer()
+    try:
+        complaints = await get_all_complaints(limit=20)
+        pending_count = await get_complaint_count("pending")
+        read_count = await get_complaint_count("read")
+        replied_count = await get_complaint_count("replied")
+        
+        text = (
+            f"📩 **Shikoyatlar**\n\n"
+            f"⏳ Kutilayotgan: **{pending_count}** ta\n"
+            f"📖 O'qilgan: **{read_count}** ta\n"
+            f"✅ Javob berilgan: **{replied_count}** ta\n\n"
+            f"**Jami: {pending_count + read_count + replied_count}** ta\n\n"
+            "Quyidagi bo'limlardan birini tanlang:"
+        )
+        
+        keyboard = [
+            [InlineKeyboardButton(f"⏳ Kutilayotgan ({pending_count})", callback_data="complaints_pending_0")],
+            [InlineKeyboardButton(f"📖 O'qilgan ({read_count})", callback_data="complaints_read_0")],
+            [InlineKeyboardButton(f"✅ Javob berilgan ({replied_count})", callback_data="complaints_replied_0")],
+            [InlineKeyboardButton("🔙 Admin panel", callback_data="menu_admin")],
+        ]
+        
+        await cq.message.edit_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+        await cq.answer()
+        
+        duration_ms = (time.time() - start_time) * 1000
+        logger.info("[DIAG] HANDLER_END: handler=admin_complaints_callback duration_ms=%.2f", duration_ms)
+        if duration_ms > 2000:
+            logger.warning("[DIAG] HANDLER_SLOW: handler=admin_complaints_callback duration_ms=%.2f", duration_ms)
+    except Exception as e:
+        duration_ms = (time.time() - start_time) * 1000
+        logger.error("[DIAG] HANDLER_ERROR: handler=admin_complaints_callback duration_ms=%.2f error=%s", duration_ms, e, exc_info=True)
+        raise
 
 @Client.on_callback_query(filters.regex(r"^complaints_(pending|read|replied)_(\d+)$") & is_admin_callback_filter)
 async def complaints_list_callback(client: Client, cq: CallbackQuery):
