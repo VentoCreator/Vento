@@ -1331,12 +1331,33 @@ async def get_all_complaints(limit: int = 50, offset: int = 0):
                 "admin_reply": r[10], "replied_at": r[11]
             } for r in rows]
 
-async def get_complaint_count():
-    """Shikoyatlar sonini olish"""
+async def get_complaint_count(status: str = None):
+    """Shikoyatlar sonini olish (status bo'yicha)"""
+    if status:
+        async with get_db_connection() as db:
+            async with db.execute("SELECT COUNT(*) FROM complaints WHERE status = ?", (status,)) as cursor:
+                row = await cursor.fetchone()
+                return row[0] if row else 0
+    else:
+        async with get_db_connection() as db:
+            async with db.execute("SELECT COUNT(*) FROM complaints") as cursor:
+                row = await cursor.fetchone()
+                return row[0] if row else 0
+
+async def get_pending_complaints(limit: int = 50, offset: int = 0):
+    """Kutilayotgan shikoyatlarni olish"""
     async with get_db_connection() as db:
-        async with db.execute("SELECT COUNT(*) FROM complaints") as cursor:
-            row = await cursor.fetchone()
-            return row[0] if row else 0
+        async with db.execute(
+            "SELECT id, user_id, username, first_name, subject, message, photo_file_id, status, created_at, read_at, admin_reply, replied_at FROM complaints WHERE status = 'pending' ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            (limit, offset)
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [{
+                "id": r[0], "user_id": r[1], "username": r[2], "first_name": r[3],
+                "subject": r[4], "message": r[5], "photo_file_id": r[6],
+                "status": r[7], "created_at": r[8], "read_at": r[9],
+                "admin_reply": r[10], "replied_at": r[11]
+            } for r in rows]
 
 async def has_accepted_chat_terms(user_id: int) -> bool:
     """Foydalanuvchi chat shartlarini qabul qilganmi?"""
@@ -1549,7 +1570,7 @@ async def mark_complaint_read(complaint_id: int):
     import time
     now = int(time.time())
     async with get_db_connection() as db:
-        await db.execute("UPDATE complaints SET read_at = ? WHERE id = ?", (now, complaint_id))
+        await db.execute("UPDATE complaints SET read_at = ?, status = 'read' WHERE id = ?", (now, complaint_id))
         await db.commit()
 
 async def reply_to_complaint(complaint_id: int, admin_reply: str):

@@ -14,7 +14,7 @@ from database import (
     clean_users_without_username, get_admin_stats,
     get_all_registered_user_ids, get_all_admins, get_admin_info,
     add_admin, remove_admin, update_admin_permission, log_admin_action,
-    get_all_complaints, get_complaint_by_id, mark_complaint_read, reply_to_complaint, get_complaint_count
+    get_all_complaints, get_complaint_by_id, mark_complaint_read, reply_to_complaint, get_complaint_count, get_pending_complaints
 )
 import time
 import asyncio
