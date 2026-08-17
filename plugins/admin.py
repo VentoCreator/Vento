@@ -1,7 +1,8 @@
 from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, ReplyKeyboardRemove
 from pyrogram.errors import FloodWait
-from config import SUPER_ADMIN_ID, SECOND_ADMIN_ID, is_admin, ADMIN_IDS, is_owner, OWNER_ID, can_broadcast, can_ban, can_clear_db, can_manage_users, can_add_admin
+from config import SUPER_ADMIN_ID, SECOND_ADMIN_ID, is_admin, is_owner, OWNER_ID, can_broadcast, can_ban, can_clear_db, can_manage_users, can_add_admin
+import config
 from locales import get_text
 from database import get_known_user
 from plugins.utag import TAG_MESSAGES
@@ -14,7 +15,7 @@ from database import (
     clean_users_without_username, get_admin_stats,
     get_all_registered_user_ids, get_all_admins, get_admin_info,
     add_admin, remove_admin, update_admin_permission, log_admin_action,
-    get_all_complaints, get_complaint_by_id, mark_complaint_read, reply_to_complaint, get_complaint_count, get_pending_complaints
+    get_all_complaints, get_complaint_by_id, mark_complaint_read, reply_to_complaint, get_complaint_count, get_pending_complaints, get_complaints_by_status
 )
 import time
 import asyncio
@@ -227,7 +228,7 @@ async def admin_all_bazalar_callback(client: Client, cq: CallbackQuery):
     buttons = []
 
     for owner_id, owner_groups in by_owner.items():
-        owner_label = f"👤 Admin" if owner_id in ADMIN_IDS else f"👤 User `{owner_id}`"
+        owner_label = f"👤 Admin" if is_admin(owner_id) else f"👤 User `{owner_id}`"
         lines.append(f"\n{owner_label}:")
         for g in owner_groups:
             cnt = await get_group_member_count(g["group_id"])
@@ -240,7 +241,7 @@ async def admin_all_bazalar_callback(client: Client, cq: CallbackQuery):
                 f"📁 {g['group_title']} ({cnt} ta)",
                 callback_data=f"admin_view_baza_{g['group_id']}"
             )])
-        if owner_id not in ADMIN_IDS:
+        if not is_admin(owner_id):
             buttons.append([InlineKeyboardButton(
                 f"👤 {owner_label} profili", callback_data=f"adm_user_{owner_id}"
             )])
@@ -264,14 +265,14 @@ async def admin_view_baza_callback(client: Client, cq: CallbackQuery):
     cnt = await get_group_member_count(gid)
     date_str = datetime.fromtimestamp(group["date_scraped"]).strftime("%d.%m.%Y %H:%M")
     owner_id = group.get("owner_id", 0)
-    owner_str = "Admin" if owner_id in ADMIN_IDS else f"`{owner_id}`"
+    owner_str = "Admin" if is_admin(owner_id) else f"`{owner_id}`"
 
     buttons = [
         [InlineKeyboardButton("📋 Ro'yxatni ko'rish", callback_data=f"baza_list_{gid}_0")],
         [InlineKeyboardButton("📨 Xabar yuborish", callback_data=f"baza_send_{gid}")],
         [InlineKeyboardButton("🗑 Bazani o'chirish", callback_data=f"admin_del_baza_confirm_{gid}")],
     ]
-    if owner_id and owner_id not in ADMIN_IDS:
+    if owner_id and not is_admin(owner_id):
         buttons.append([InlineKeyboardButton("👤 Egasi profili", callback_data=f"adm_user_{owner_id}")])
     buttons.append([InlineKeyboardButton("🔙 Barcha bazalar", callback_data="admin_all_bazalar")])
 
@@ -707,7 +708,7 @@ async def broadcast_handler(client: Client, message: Message):
         await message.reply_text("❌ Hech qanday foydalanuvchi topilmadi.")
         return
 
-    user_ids = [uid for uid in user_ids if uid not in ADMIN_IDS]
+    user_ids = [uid for uid in user_ids if not is_admin(uid)]
 
     await message.reply_text("🔓 Spambot unlock qilinmoqda...")
     unlock_success = await send_and_check_unlock(client)
@@ -936,7 +937,7 @@ def owner_filter(_, __, query: CallbackQuery):
 
 is_owner_filter = filters.create(owner_filter)
 
-@Client.on_callback_query(filters.regex("^admin_manage_admins$") & is_admin_callback_filter)
+@Client.on_callback_query(filters.regex("^admin_manage_admins$") & is_owner_filter)
 async def admin_manage_admins_callback(client: Client, cq: CallbackQuery):
     """Adminlar ro'yxatini ko'rsatish (faqat Owner uchun)"""
     if not is_owner(cq.from_user.id):
@@ -986,7 +987,7 @@ async def admin_manage_admins_callback(client: Client, cq: CallbackQuery):
     )
     await cq.answer()
 
-@Client.on_callback_query(filters.regex(r"^_admin_view_(\d+)$") & is_admin_callback_filter)
+@Client.on_callback_query(filters.regex(r"^_admin_view_(\d+)$") & is_owner_filter)
 async def admin_view_callback(client: Client, cq: CallbackQuery):
     """Admin profilini ko'rsatish (faqat Owner uchun)"""
     if not is_owner(cq.from_user.id):
@@ -1051,7 +1052,7 @@ async def admin_view_callback(client: Client, cq: CallbackQuery):
     await cq.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
     await cq.answer()
 
-@Client.on_callback_query(filters.regex(r"^_perm_(\w+)_(\d+)$") & is_admin_callback_filter)
+@Client.on_callback_query(filters.regex(r"^_perm_(\w+)_(\d+)$") & is_owner_filter)
 async def admin_toggle_permission_callback(client: Client, cq: CallbackQuery):
     """Admin huquqini toggle qilish (faqat Owner uchun)"""
     if not is_owner(cq.from_user.id):
@@ -1143,7 +1144,7 @@ async def admin_toggle_permission_callback(client: Client, cq: CallbackQuery):
     
     await cq.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
 
-@Client.on_callback_query(filters.regex(r"^_admin_remove_confirm_(\d+)$") & is_admin_callback_filter)
+@Client.on_callback_query(filters.regex(r"^_admin_remove_confirm_(\d+)$") & is_owner_filter)
 async def admin_remove_confirm_callback(client: Client, cq: CallbackQuery):
     """Adminlikdan olishni tasdiqlash (faqat Owner uchun)"""
     if not is_owner(cq.from_user.id):
@@ -1174,7 +1175,7 @@ async def admin_remove_confirm_callback(client: Client, cq: CallbackQuery):
     )
     await cq.answer()
 
-@Client.on_callback_query(filters.regex(r"^_admin_remove_do_(\d+)$") & is_admin_callback_filter)
+@Client.on_callback_query(filters.regex(r"^_admin_remove_do_(\d+)$") & is_owner_filter)
 async def admin_remove_do_callback(client: Client, cq: CallbackQuery):
     """Adminlikdan olish (faqat Owner uchun)"""
     if not is_owner(cq.from_user.id):
@@ -1187,8 +1188,7 @@ async def admin_remove_do_callback(client: Client, cq: CallbackQuery):
     
     await log_admin_action(cq.from_user.id, "remove_admin", admin_id)
     
-    if admin_id in ADMIN_IDS:
-        ADMIN_IDS.remove(admin_id)
+    await config.load_admin_ids_from_db()
     
     await cq.answer("Adminlikdan olindi!", show_alert=True)
     
@@ -1233,7 +1233,7 @@ async def admin_remove_do_callback(client: Client, cq: CallbackQuery):
         reply_markup=InlineKeyboardMarkup(buttons)
     )
 
-@Client.on_callback_query(filters.regex("^admin_add_new$") & is_admin_callback_filter)
+@Client.on_callback_query(filters.regex("^admin_add_new$") & is_owner_filter)
 async def admin_add_new_callback(client: Client, cq: CallbackQuery):
     """Yangi admin qo'shish uchun user ID so'rash (faqat Owner uchun)"""
     if not is_owner(cq.from_user.id):
@@ -1315,7 +1315,7 @@ async def admin_add_handler(client: Client, message: Message):
             return
         target_id = results[0]
     
-    if target_id in ADMIN_IDS:
+    if is_admin(target_id):
         await message.reply_text(
             f"❌ Bu foydalanuvchi allaqachon admin!",
             reply_markup=InlineKeyboardMarkup([[
@@ -1352,7 +1352,7 @@ async def admin_add_handler(client: Client, message: Message):
     
     await log_admin_action(message.from_user.id, "add_admin", target_id, f"Joined: {joined_date}, Admin date: {admin_date}")
     
-    ADMIN_IDS.append(target_id)
+    await config.load_admin_ids_from_db()
     
     display = f"@{username}" if username else first_name
     
@@ -1475,12 +1475,13 @@ async def complaints_list_callback(client: Client, cq: CallbackQuery):
     status = cq.matches[0].group(1)
     offset = int(cq.matches[0].group(2))
     
-    if status == "pending":
-        complaints = await get_pending_complaints(limit=10, offset=offset)
-        title = "⏳ **Kutilayotgan shikoyatlar**"
-    else:
-        complaints = await get_all_complaints(limit=10, offset=offset)
-        title = f"📋 **Shikoyatlar ro'yxati**"
+    complaints = await get_complaints_by_status(status, limit=10, offset=offset)
+    title_map = {
+        "pending": "⏳ **Kutilayotgan shikoyatlar**",
+        "read": "📖 **O'qilgan shikoyatlar**",
+        "replied": "✅ **Javob berilgan shikoyatlar**"
+    }
+    title = title_map.get(status, f"📋 **Shikoyatlar ro'yxati**")
     
     if not complaints:
         await cq.message.edit_text(

@@ -1359,6 +1359,21 @@ async def get_pending_complaints(limit: int = 50, offset: int = 0):
                 "admin_reply": r[10], "replied_at": r[11]
             } for r in rows]
 
+async def get_complaints_by_status(status: str, limit: int = 50, offset: int = 0):
+    """Shikoyatlarni status bo'yicha olish"""
+    async with get_db_connection() as db:
+        async with db.execute(
+            "SELECT id, user_id, username, first_name, subject, message, photo_file_id, status, created_at, read_at, admin_reply, replied_at FROM complaints WHERE status = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            (status, limit, offset)
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [{
+                "id": r[0], "user_id": r[1], "username": r[2], "first_name": r[3],
+                "subject": r[4], "message": r[5], "photo_file_id": r[6],
+                "status": r[7], "created_at": r[8], "read_at": r[9],
+                "admin_reply": r[10], "replied_at": r[11]
+            } for r in rows]
+
 async def has_accepted_chat_terms(user_id: int) -> bool:
     """Foydalanuvchi chat shartlarini qabul qilganmi?"""
     async with get_db_connection() as db:

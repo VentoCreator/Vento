@@ -683,7 +683,7 @@ async def contact_message_handler(client: Client, message: Message):
                 ])
             )
         
-        from config import ADMIN_IDS, bot_client
+        from config import bot_client
         from database import get_all_admins
         
         admins = await get_all_admins()

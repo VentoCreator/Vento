@@ -86,4 +86,5 @@ diag_out.txt
 logger_test*_out.txt
 monitor_out.txt
 observer*_out.txt
+admin_callback_audit.py
 

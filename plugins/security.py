@@ -1,7 +1,8 @@
 from pyrogram import Client, filters, ContinuePropagation, StopPropagation
 from pyrogram.types import CallbackQuery, Message
 from database import get_violation_count
-from config import SUPER_ADMIN_ID, SECOND_ADMIN_ID, ADMIN_IDS
+import config
+from config import SUPER_ADMIN_ID, SECOND_ADMIN_ID
 import time
 import logging
 from collections import defaultdict
@@ -82,7 +83,7 @@ async def notify_admin(client: Client, user_id: int, activity_type: str, details
         f"⏰ Vaqt: {time.strftime('%Y-%m-%d %H:%M:%S')}"
     )
     
-    for admin_id in ADMIN_IDS:
+    for admin_id in config.ADMIN_IDS:
         try:
             await client.send_message(admin_id, alert_text)
         except Exception as e:
@@ -131,7 +132,7 @@ async def banned_user_middleware(client: Client, message: Message):
         security_logger.debug("[DIAG] MESSAGE_BLOCKED: no from_user")
         raise ContinuePropagation
 
-    if message.from_user.id in ADMIN_IDS:
+    if config.is_admin(message.from_user.id):
         security_logger.debug("[DIAG] MESSAGE_BYPASS: admin user_id=%d", message.from_user.id)
         raise ContinuePropagation
 
@@ -157,7 +158,7 @@ async def banned_callback_middleware(client: Client, callback_query: CallbackQue
         security_logger.debug("[DIAG] CALLBACK_BLOCKED: no from_user")
         raise ContinuePropagation
 
-    if callback_query.from_user.id in ADMIN_IDS:
+    if config.is_admin(callback_query.from_user.id):
         security_logger.debug("[DIAG] CALLBACK_BYPASS: admin user_id=%d", callback_query.from_user.id)
         raise ContinuePropagation
 

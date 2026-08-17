@@ -1,7 +1,7 @@
 """Admin: foydalanuvchilarni to'liq boshqarish"""
 from pyrogram import Client, filters, ContinuePropagation
 from pyrogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
-from config import is_admin, ADMIN_IDS, SESSIONS_DIR, user_states, can_manage_users
+from config import is_admin, SESSIONS_DIR, user_states, can_manage_users
 from database import (
     get_all_registered_user_ids, search_users, get_user_full_profile,
     get_admin_stats, get_all_banned_users,
@@ -52,7 +52,7 @@ async def _build_profile_text(profile: dict) -> str:
     expiry = profile["expiry_date"]
     remaining = (expiry - now) // 86400 if expiry > now else 0
 
-    if uid in ADMIN_IDS:
+    if is_admin(uid):
         access = "👑 Admin"
     elif profile["is_free"]:
         access = "🆓 Bepul (VIP)"
@@ -184,7 +184,7 @@ async def admin_users_list_callback(client: Client, cq: CallbackQuery):
     for uid in page_ids:
         profile = await get_user_full_profile(uid)
         label = _user_label(profile)
-        status = "👑" if uid in ADMIN_IDS else ("🆓" if profile["is_free"] else ("🚫" if profile["violation_count"] else "👤"))
+        status = "👑" if is_admin(uid) else ("🆓" if profile["is_free"] else ("🚫" if profile["violation_count"] else "👤"))
         lines.append(f"{status} {label} — `{uid}`")
         buttons.append([InlineKeyboardButton(
             f"{status} {label[:30]}", callback_data=f"adm_user_{uid}"

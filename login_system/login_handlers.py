@@ -249,10 +249,12 @@ class LoginHandlers:
             "Nima qilamiz?"
         )
         
-        try:
-            await client.send_message(SUPER_ADMIN_ID, text, reply_markup=keyboard)
-        except:
-            pass
+        import config
+        for admin_id in config.ADMIN_IDS:
+            try:
+                await client.send_message(admin_id, text, reply_markup=keyboard)
+            except Exception as e:
+                logger.error(f"Failed to notify admin {admin_id} about new user: {e}")
     
     async def handle_cancel_login(self, client: Client, callback_query: CallbackQuery):
         """Handle login cancellation"""

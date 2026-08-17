@@ -32,6 +32,7 @@ from config import (
     API_HASH,
     user_states,
     stop_flags,
+    is_admin,
 )
 from datetime import datetime
 import os
@@ -40,7 +41,7 @@ from session_manager import get_user_client
 
 
 def _is_admin(uid: int) -> bool:
-    return uid in [SUPER_ADMIN_ID, SECOND_ADMIN_ID]
+    return is_admin(uid)
 
 
 async def _check_access(uid: int) -> bool:
@@ -49,6 +50,15 @@ async def _check_access(uid: int) -> bool:
     if await is_free_user(uid):
         return True
     return (await get_user_subscription(uid)) > 0
+
+
+async def _check_group_access(uid: int, gid: str) -> bool:
+    if _is_admin(uid):
+        return True
+    group = await get_group_info(gid)
+    if not group:
+        return False
+    return group.get("owner_id") == uid
 
 
 def _back_btn(label="🔙 Orqaga", data="admin_baza"):
@@ -142,8 +152,8 @@ async def admin_baza_page_callback(client: Client, cq: CallbackQuery):
 
 async def _show_baza_page(cq: CallbackQuery, uid: int, page: int):
     """Bazalar ro'yxatini sahifa ko'rinishida ko'rsatish."""
-    is_admin = uid in [SUPER_ADMIN_ID, SECOND_ADMIN_ID]
-    groups = await get_all_scraped_groups(owner_id=None if is_admin else uid)
+    is_admin_flag = _is_admin(uid)
+    groups = await get_all_scraped_groups(owner_id=None if is_admin_flag else uid)
 
     if not groups:
         await cq.message.edit_text(
@@ -268,6 +278,10 @@ async def baza_open_callback(client: Client, cq: CallbackQuery):
         return
 
     gid = cq.matches[0].group(1)
+    if not await _check_group_access(uid, gid):
+        await cq.answer("⛔️ Ruxsat yo'q!", show_alert=True)
+        return
+
     group = await get_group_info(gid)
     if not group:
         await cq.answer("Baza topilmadi!", show_alert=True)
@@ -327,6 +341,9 @@ async def baza_list_callback(client: Client, cq: CallbackQuery):
         return
 
     gid = cq.matches[0].group(1)
+    if not await _check_group_access(uid, gid):
+        await cq.answer("⛔️ Ruxsat yo'q!", show_alert=True)
+        return
     page = int(cq.matches[0].group(2))
     limit = 50
     offset = page * limit
@@ -384,6 +401,9 @@ async def baza_add_callback(client: Client, cq: CallbackQuery):
         return
 
     gid = cq.matches[0].group(1)
+    if not await _check_group_access(uid, gid):
+        await cq.answer("⛔️ Ruxsat yo'q!", show_alert=True)
+        return
     user_states[uid] = f"waiting_baza_add|{gid}"
     await cq.message.edit_text(
         "➕ **User qo'shish**\n\n"
@@ -417,6 +437,9 @@ async def baza_send_callback(client: Client, cq: CallbackQuery):
         return
 
     gid = cq.matches[0].group(1)
+    if not await _check_group_access(uid, gid):
+        await cq.answer("⛔️ Ruxsat yo'q!", show_alert=True)
+        return
     user_states[uid] = f"waiting_baza_send|{gid}"
     await cq.message.edit_text(
         "📨 **Xabar yuborish**\n\n"
@@ -445,6 +468,10 @@ async def baza_del_confirm_callback(client: Client, cq: CallbackQuery):
         return
 
     gid = cq.matches[0].group(1)
+    if not await _check_group_access(uid, gid):
+        await cq.answer("⛔️ Ruxsat yo'q!", show_alert=True)
+        return
+
     group = await get_group_info(gid)
     if not group:
         await cq.answer("Baza topilmadi!", show_alert=True)
@@ -479,6 +506,9 @@ async def baza_del_do_callback(client: Client, cq: CallbackQuery):
         return
 
     gid = cq.matches[0].group(1)
+    if not await _check_group_access(uid, gid):
+        await cq.answer("⛔️ Ruxsat yo'q!", show_alert=True)
+        return
     await delete_scraped_group(gid)
     await cq.message.edit_text(
         "🗑 Baza muvaffaqiyatli o'chirildi.",
@@ -497,8 +527,8 @@ async def baza_clear_menu_callback(client: Client, cq: CallbackQuery):
     if not await _check_access(uid):
         return
 
-    is_admin = uid in [SUPER_ADMIN_ID, SECOND_ADMIN_ID]
-    groups = await get_all_scraped_groups(owner_id=None if is_admin else uid)
+    is_admin_flag = _is_admin(uid)
+    groups = await get_all_scraped_groups(owner_id=None if is_admin_flag else uid)
     if not groups:
         await cq.answer("Baza bo'sh!", show_alert=True)
         return
@@ -551,6 +581,10 @@ async def baza_clear_select_callback(client: Client, cq: CallbackQuery):
         return
 
     gid = cq.matches[0].group(1)
+    if not await _check_group_access(uid, gid):
+        await cq.answer("⛔️ Ruxsat yo'q!", show_alert=True)
+        return
+
     group = await get_group_info(gid)
     if not group:
         await cq.answer("Baza topilmadi!", show_alert=True)
@@ -579,7 +613,8 @@ async def baza_clear_select_callback(client: Client, cq: CallbackQuery):
 @Client.on_callback_query(filters.regex("^baza_clear_all_confirm$"))
 async def baza_clear_all_confirm_callback(client: Client, cq: CallbackQuery):
     uid = cq.from_user.id
-    if not await _check_access(uid):
+    if not _is_admin(uid):
+        await cq.answer("⛔️ Ruxsat yo'q!", show_alert=True)
         return
 
     await cq.message.edit_text(
@@ -602,7 +637,8 @@ async def baza_clear_all_confirm_callback(client: Client, cq: CallbackQuery):
 @Client.on_callback_query(filters.regex("^baza_clear_all_do$"))
 async def baza_clear_all_do_callback(client: Client, cq: CallbackQuery):
     uid = cq.from_user.id
-    if not await _check_access(uid):
+    if not _is_admin(uid):
+        await cq.answer("⛔️ Ruxsat yo'q!", show_alert=True)
         return
 
     await delete_all_scraped_groups()
@@ -620,6 +656,9 @@ async def baza_clear_all_do_callback(client: Client, cq: CallbackQuery):
 @Client.on_callback_query(filters.regex("^stop_process$"))
 async def stop_process_callback(client: Client, cq: CallbackQuery):
     uid = cq.from_user.id
+    if not await _check_access(uid):
+        await cq.answer("⛔️ Ruxsat yo'q!", show_alert=True)
+        return
     stop_flags[uid] = True
     await cq.answer("🛑 To'xtatish signali yuborildi.", show_alert=True)
 
@@ -833,6 +872,8 @@ async def baza_state_handler(client: Client, message: Message):
     if state == "waiting_baza_search_id":
         gid = message.text.strip().upper()
         group = await get_group_info(gid)
+        if group and group.get("owner_id") != uid and not _is_admin(uid):
+            group = None
         user_states.pop(uid, None)
         if not group:
             await message.reply_text(
@@ -884,6 +925,9 @@ async def baza_state_handler(client: Client, message: Message):
         if not group:
             await message.reply_text("❌ Baza topilmadi. Boshqa ID kiriting:")
             return
+        if group.get("owner_id") != uid and not _is_admin(uid):
+            await message.reply_text("❌ Ruxsat yo'q!")
+            return
 
         user_states.pop(uid, None)
         await message.reply_text(
@@ -906,6 +950,9 @@ async def baza_state_handler(client: Client, message: Message):
 
     if state_str.startswith("waiting_baza_add|"):
         gid = state_str.replace("waiting_baza_add|", "")
+        if not await _check_group_access(uid, gid):
+            await message.reply_text("❌ Ruxsat yo'q!")
+            return
         user_states.pop(uid, None)
         lines = message.text.strip().split()
         targets = [l.strip().lstrip("@") for l in lines if l.strip()]
@@ -968,6 +1015,9 @@ async def baza_state_handler(client: Client, message: Message):
 
     if state_str.startswith("waiting_baza_send|"):
         gid = state_str.replace("waiting_baza_send|", "")
+        if not await _check_group_access(uid, gid):
+            await message.reply_text("❌ Ruxsat yo'q!")
+            return
         user_states.pop(uid, None)
 
         session_name = os.path.join(SESSIONS_DIR, f"user_{uid}")
@@ -1137,6 +1187,9 @@ async def baza_state_handler(client: Client, message: Message):
 
     if state_str.startswith("waiting_adder_target|"):
         gid = state_str.replace("waiting_adder_target|", "")
+        if not await _check_group_access(uid, gid):
+            await message.reply_text("❌ Ruxsat yo'q!")
+            return
         target_group = message.text.strip()
         
         user_states.pop(uid, None)
@@ -1293,6 +1346,11 @@ async def baza_state_handler(client: Client, message: Message):
 async def baza_adder_callback(client: Client, cq: CallbackQuery):
     uid = cq.from_user.id
     if not await _check_access(uid):
+        await cq.answer("⛔️ Ruxsat yo'q!", show_alert=True)
+        return
+
+    gid = cq.matches[0].group(1)
+    if not await _check_group_access(uid, gid):
         await cq.answer("⛔️ Ruxsat yo'q!", show_alert=True)
         return
 
