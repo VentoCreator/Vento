@@ -6,6 +6,12 @@ import random
 import time
 import logging
 from typing import Dict, List, Optional, Any
+from utag_system.utag_helpers import (
+    get_utag_speed_seconds,
+    send_completion_notification,
+    ProgressThrottler,
+    UTAG_SPEED_DEFAULT,
+)
 from pyrogram import Client
 from pyrogram.errors import FloodWait, ChatWriteForbidden, UserBannedInChannel
 
@@ -676,17 +682,18 @@ class UtagService:
             
             # Speed delays settings
             logger.info("[STEP 3] About to parse settings")
-            speed = settings.get("utag_speed", "normal")
+            speed_seconds = get_utag_speed_seconds(settings)
             show_completion = settings.get("utag_completion_msg", True)
             typing_status = settings.get("utag_typing_status", True)
             auto_stop_on_delete = settings.get("utag_auto_stop_on_delete", True)
-            
-            speed_delays = {"slow": (5, 8), "normal": (2.5, 4.5), "fast": (1, 2.5)}
-            min_delay, max_delay = speed_delays.get(speed, (2.5, 4.5))
-            
-            logger.info(f"[STEP 3a] Config parsed: speed={speed} ({min_delay}-{max_delay}s delay), show_completion={show_completion}, typing={typing_status}, auto_stop={auto_stop_on_delete}")
-            logger.info(f"[DEBUG UTAG] Config options: speed={speed} ({min_delay}-{max_delay}s delay), show_completion={show_completion}, typing={typing_status}, auto_stop={auto_stop_on_delete}")
+            delete_timer = settings.get("utag_delete_timer", 2)
+
+            logger.info(
+                f"[STEP 3a] Config parsed: speed={speed_seconds}s, show_completion={show_completion}, "
+                f"typing={typing_status}, auto_stop={auto_stop_on_delete}"
+            )
             used_messages = []
+            progress_throttler = ProgressThrottler(speed_seconds)
             
             # [STEP 4] Check flags before loop
             logger.info(f"[STEP 4] Pre-loop flag check: stop_flag={stop_flag[0]}, pause_flag={pause_flag[0]}, process_key in active_tasks={process_key in self.active_tasks}")
@@ -811,9 +818,10 @@ class UtagService:
                             
                             # Sync progress to queue_manager
                             progress_pct = int((self.active_tasks[process_key]["tagged"] / len(members)) * 100)
-                            logger.info(f"[STEP 15] Iteration {idx}: Updating queue_manager progress to {progress_pct}%")
-                            await update_task_progress(user_id, progress_pct)
-                            logger.info(f"[STEP 15a] Iteration {idx}: queue_manager progress updated")
+                            if progress_throttler.should_update():
+                                logger.info(f"[STEP 15] Iteration {idx}: Updating queue_manager progress to {progress_pct}%")
+                                await update_task_progress(user_id, progress_pct)
+                                logger.info(f"[STEP 15a] Iteration {idx}: queue_manager progress updated")
                 
                 except FloodWait as e:
                     logger.warning(f"[UTAG] FloodWait {e.value}s encountered for user {user_id}. Waiting...")
@@ -857,37 +865,24 @@ class UtagService:
                 
                 # Apply delay between tagging messages
                 logger.info(f"[STEP 17] Iteration {idx}: Applying delay")
-                delay = random.uniform(min_delay, max_delay)
-                logger.info(f"[DEBUG UTAG] Sleeping for {delay:.2f}s before next tag.")
-                await asyncio.sleep(delay)
+                logger.info(f"[DEBUG UTAG] Sleeping for {speed_seconds:.2f}s before next tag.")
+                await asyncio.sleep(speed_seconds)
                 logger.info(f"[STEP 18] Iteration {idx}: Delay complete, continuing to next iteration")
             
             # [STEP 19] Loop finished
             logger.info(f"[STEP 19] Member loop finished. Total iterations: {idx if 'idx' in locals() else 0}")
             
-            # Send completion/stopping report if requested and task wasn't completely stopped by other means
-            logger.info(f"[STEP 20] Checking completion report: show_completion={show_completion}, process_key in active_tasks={process_key in self.active_tasks}")
-            if show_completion and process_key in self.active_tasks:
+            # Send completion notification in group chat
+            logger.info(f"[STEP 20] Checking completion report: show_completion={show_completion}")
+            if show_completion:
                 async with self._lock:
-                    tagged = self.active_tasks[process_key]["tagged"]
-                    failed = self.active_tasks[process_key]["failed"]
-                    total = len(members)
-                
-                report = (
-                    "✅ **Utag tugatildi!**\n\n"
-                    f"🏷 Tag qilinganlar: **{tagged}** ta\n"
-                    f"❌ Xatoliklar: **{failed}** ta\n"
-                    f"📊 Jami: **{total}** ta"
+                    tagged = 0
+                    if process_key in self.active_tasks:
+                        tagged = self.active_tasks[process_key]["tagged"]
+                await send_completion_notification(
+                    user_client, chat_id, tagged, delete_timer, show_completion=True
                 )
-                if stop_flag[0]:
-                    report = report.replace("✅ **Utag tugatildi!**", "🛑 **Utag to'xtatildi!**")
-                
-                try:
-                    await client.send_message(user_id, report)
-                    logger.info(f"[DEBUG UTAG] Report sent to user {user_id}: {report.replace(chr(10), ' ')}")
-                    logger.info(f"[STEP 21] Completion report sent")
-                except Exception as e:
-                    logger.error(f"[UTAG] Failed to send execution report to user {user_id}: {e}")
+                logger.info(f"[STEP 21] Completion notification sent: tagged={tagged}")
                     
         except Exception as e:
             # [UNCAUGHT EXCEPTION] Full traceback for any unhandled exception

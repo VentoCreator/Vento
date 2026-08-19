@@ -31,6 +31,19 @@ from session_manager import get_user_client
 from database import get_user_utag_commands, save_user_utag_command, add_utag_timer, get_utag_timer, get_user_utag_timers, update_utag_timer_last_sent, set_utag_timer_active, delete_utag_timer, get_all_active_utag_timers
 
 from utag_system import utag_service
+from utag_system.utag_helpers import (
+    UTAG_SPEED_MIN,
+    UTAG_SPEED_MAX,
+    UTAG_SPEED_DEFAULT,
+    SPEED_WARNING,
+    ACTION_STATUS_OPTIONS,
+    get_utag_speed_seconds,
+    format_speed_label,
+    is_high_speed_risk,
+    edit_and_auto_delete,
+    send_completion_notification,
+    get_action_status_label,
+)
 
 
 
@@ -440,15 +453,7 @@ async def custom_utag_command_handler(client: Client, message: Message):
 
         try:
             _uc = await get_user_client(user_id)
-            await _uc.edit_message_text(chat_id, message.id, "VentoTag faolsizlantirilmoqda...")
-            if delete_timer > 0:
-                await asyncio.sleep(delete_timer)
-                try:
-                    await _uc.delete_messages(chat_id, message.id)
-                except:
-                    pass
-            elif delete_timer == 0:
-                pass
+            await edit_and_auto_delete(_uc, chat_id, message.id, "VentoTag faolsizlantirilmoqda...", delete_timer)
         except Exception:
             logger.exception("[UTAG_DEBUG] stop: exception while editing/deleting stop message")
             try:
@@ -497,13 +502,7 @@ async def custom_utag_command_handler(client: Client, message: Message):
 
         try:
             _uc = await get_user_client(user_id)
-            await _uc.edit_message_text(chat_id, message.id, msg_text)
-            if delete_timer > 0:
-                await asyncio.sleep(delete_timer)
-                try:
-                    await _uc.delete_messages(chat_id, message.id)
-                except:
-                    pass
+            await edit_and_auto_delete(_uc, chat_id, message.id, msg_text, delete_timer)
         except Exception:
             logger.exception("[UTAG_DEBUG] pause/resume: exception while editing/deleting message")
             try:
@@ -563,13 +562,7 @@ async def custom_utag_command_handler(client: Client, message: Message):
     delete_timer = settings.get("utag_delete_timer", 2)
     
     try:
-        await user_client.edit_message_text(chat_id, message.id, "VentoTag boshlandi...")
-        if delete_timer > 0:
-            await asyncio.sleep(delete_timer)
-            try:
-                await user_client.delete_messages(chat_id, message.id)
-            except:
-                pass
+        await edit_and_auto_delete(user_client, chat_id, message.id, "VentoTag boshlandi...", delete_timer)
     except Exception:
         logger.exception("[UTAG_DEBUG] exception while editing/deleting start message")
         try:
@@ -657,19 +650,9 @@ async def custom_utag_command_handler(client: Client, message: Message):
 
     settings = user_settings.get(user_id, {})
 
-    speed = settings.get("utag_speed", "normal")
-
+    speed_seconds = get_utag_speed_seconds(settings)
     show_completion = settings.get("utag_completion_msg", True)
-
     typing_status = settings.get("utag_typing_status", True)
-
-    
-
-    speed_delays = {"slow": (5, 8), "normal": (2.5, 4.5), "fast": (1, 2.5)}
-
-    min_delay, max_delay = speed_delays.get(speed, (2.5, 4.5))
-
-    
 
     stop_key = f"utag_{user_id}_{chat_id}"
 
@@ -690,9 +673,12 @@ async def custom_utag_command_handler(client: Client, message: Message):
         "failed": 0,
         "last_message_id": None,
         "consecutive_deletions": 0,
-        "settings": {"speed": speed, "show_completion": show_completion, "typing_status": typing_status},
-        "min_delay": min_delay,
-        "max_delay": max_delay,
+        "settings": {
+            "speed_seconds": speed_seconds,
+            "show_completion": show_completion,
+            "typing_status": typing_status,
+        },
+        "speed_seconds": speed_seconds,
         "status_msg": None,
         "stop_key": stop_key
     }
@@ -719,11 +705,11 @@ async def run_utag_process(client: Client, process_key: str, user_client: Client
     tag_emoji_info = process.get("tag_emoji_info") or []
     use_random_messages = process.get("use_random_messages", False)
     used_messages = process.get("used_messages", [])
-    min_delay = process["min_delay"]
-    max_delay = process["max_delay"]
+    speed_seconds = process.get("speed_seconds", UTAG_SPEED_DEFAULT)
     typing_status = process["settings"]["typing_status"]
     show_completion = process["settings"]["show_completion"]
     stop_key = process["stop_key"]
+    delete_timer = user_settings.get(user_id, {}).get("utag_delete_timer", 2)
     
     # Note: Peer resolution is attempted as optimization in actual API calls
     # No pre-check here to avoid blocking operations
@@ -937,13 +923,13 @@ async def run_utag_process(client: Client, process_key: str, user_client: Client
                 return
         
 
-        await asyncio.sleep(random.uniform(min_delay, max_delay))
+        await asyncio.sleep(speed_seconds)
 
-        
+    tagged_count = process.get("tagged", 0)
+    await send_completion_notification(
+        user_client, chat_id, tagged_count, delete_timer, show_completion
+    )
 
-    
-
-    stopped = stop_flags.get(stop_key, False)
     stop_flags.pop(stop_key, None)
     utag_process_tasks.pop(process_key, None)
     active_utag_processes.pop(process_key, None)
@@ -1174,19 +1160,12 @@ async def _show_utag_main_menu(cq: CallbackQuery, user_id: int):
 
     stop_cmd = custom_cmds.get("stop", "stop")
 
-    speed = settings.get("utag_speed", "normal")
-
+    speed_seconds = get_utag_speed_seconds(settings)
     show_completion = settings.get("utag_completion_msg", True)
-
     typing_status = settings.get("utag_typing_status", True)
 
-    speed_labels = {"slow": "🐢 Sekin", "normal": "⚡ Normal", "fast": "🚀 Tez"}
-
     completion_label = "✅ Yoqilgan" if show_completion else "❌ O'chirilgan"
-
     typing_label = "✅ Yoqilgan" if typing_status else "❌ O'chirilgan"
-
-
 
     await _edit_cq(
         cq,
@@ -1195,7 +1174,7 @@ async def _show_utag_main_menu(cq: CallbackQuery, user_id: int):
         f"To'xtatish uchun `.{stop_cmd}` yozing.\n\n"
         "💡 **Bir nechta guruhda bir vaqtda ishlatishingiz mumkin!**\n"
         f"📊 Maksimal: **{MAX_PARALLEL_UTAG} ta** parallel guruh\n\n"
-        f"⚙️ Sozlamalar: {speed_labels.get(speed, '⚡ Normal')} tezlik | "
+        f"⚙️ Sozlamalar: {format_speed_label(speed_seconds)} tezlik | "
         f"Yakun habari: {completion_label} | Typing: {typing_label}",
         [
             [InlineKeyboardButton("⚙️ Sozlamalar", callback_data="utag_settings")],
@@ -1301,50 +1280,36 @@ async def utag_settings_callback(client: Client, cq: CallbackQuery):
 
     custom_cmds = await _load_custom_cmds(user_id)
 
-    speed = settings.get("utag_speed", "normal")
-
+    speed_seconds = get_utag_speed_seconds(settings)
     show_completion = settings.get("utag_completion_msg", True)
-
     typing_status = settings.get("utag_typing_status", True)
-
     delete_timer = settings.get("utag_delete_timer", 2)
-
     auto_stop_on_delete = settings.get("utag_auto_stop_on_delete", True)
 
-    speed_labels = {"slow": "🐢 Sekin", "normal": "⚡ Normal", "fast": "🚀 Tez"}
-
     completion_label = "✅ Yoqilgan" if show_completion else "❌ O'chirilgan"
-
     typing_label = "✅ Yoqilgan" if typing_status else "❌ O'chirilgan"
-
     auto_stop_label = "✅ Yoqilgan" if auto_stop_on_delete else "❌ O'chirilgan"
-
     if delete_timer == 0:
-
         timer_label = "⏱️ Hech qachon"
-
     else:
-
         timer_label = f"⏱️ {delete_timer} sekund"
 
-    
-
     atag_cmd = custom_cmds.get("atag", "atag")
-
     stop_cmd = custom_cmds.get("stop", "stop")
 
-
+    speed_warning = f"\n\n{SPEED_WARNING}" if is_high_speed_risk(speed_seconds) else ""
 
     await _edit_cq(
         cq,
         "⚙️ **Utag Sozlamalari**\n\n"
-        f"🚀 Tezlik: {speed_labels.get(speed, '⚡ Normal')}\n"
+        f"🚀 Tezlik: {format_speed_label(speed_seconds)}\n"
         f"📢 Yakunlangan habari: {completion_label}\n"
         f"⌨️ Typing status: {typing_label}\n"
         f"⏱️ Xabar o'chish taymeri: {timer_label}\n"
         f"🗑 O'chishda avtostop: {auto_stop_label}\n"
         f"🔤 Boshlash komandasi: .{atag_cmd}\n"
-        f"🛑 To'xtatish komandasi: .{stop_cmd}\n\n"
+        f"🛑 To'xtatish komandasi: .{stop_cmd}"
+        f"{speed_warning}\n\n"
         "Sozlamoqchi bo'lgan parametrni tanlang:",
         [
             [
@@ -1361,6 +1326,9 @@ async def utag_settings_callback(client: Client, cq: CallbackQuery):
             ],
             [
                 InlineKeyboardButton("⏰ Taymerli habar", callback_data="utag_timer_menu"),
+                InlineKeyboardButton("🎭 Action Status", callback_data="action_status_menu")
+            ],
+            [
                 InlineKeyboardButton("🔙 Orqaga", callback_data="menu_utag")
             ]
         ]
@@ -1602,77 +1570,74 @@ async def utag_confirm_change_resume_callback(client: Client, cq: CallbackQuery)
 
 
 @Client.on_callback_query(filters.regex("^utag_speed$"))
-
 async def utag_speed_callback(client: Client, cq: CallbackQuery):
-
     if not cq.from_user:
-
         return
-
     user_id = cq.from_user.id
-
     settings = user_settings.get(user_id, {})
-
-    current_speed = settings.get("utag_speed", "normal")
-
-    speed_labels = {"slow": "🐢 Sekin", "normal": "⚡ Normal", "fast": "🚀 Tez"}
-
-
+    current_speed = get_utag_speed_seconds(settings)
 
     await _edit_cq(
         cq,
         "🚀 **Tezlikni tanlang**\n\n"
-        f"Hozirgi: {speed_labels.get(current_speed, '⚡ Normal')}\n\n"
-        "⚠️ Juda tez yuborish hisobingizni bloklashi mumkin!",
+        f"Hozirgi: {format_speed_label(current_speed)}\n"
+        f"Oraliq: {UTAG_SPEED_MIN}s — {UTAG_SPEED_MAX}s\n\n"
+        f"{SPEED_WARNING}",
         [
             [
-                InlineKeyboardButton("🐢 Sekin", callback_data="utag_set_speed_slow"),
-                InlineKeyboardButton("⚡ Normal", callback_data="utag_set_speed_normal"),
-                InlineKeyboardButton("🚀 Tez", callback_data="utag_set_speed_fast")
+                InlineKeyboardButton("0.5s", callback_data="utag_set_speed_0.5"),
+                InlineKeyboardButton("0.8s ✓", callback_data="utag_set_speed_0.8"),
+                InlineKeyboardButton("1.5s", callback_data="utag_set_speed_1.5"),
             ],
-            [InlineKeyboardButton("🔙 Orqaga", callback_data="utag_settings")]
+            [
+                InlineKeyboardButton("3.0s", callback_data="utag_set_speed_3.0"),
+                InlineKeyboardButton("5.0s", callback_data="utag_set_speed_5.0"),
+            ],
+            [InlineKeyboardButton("✏️ Boshqa qiymat", callback_data="utag_speed_custom")],
+            [InlineKeyboardButton("🔙 Orqaga", callback_data="utag_settings")],
         ]
     )
     await cq.answer()
 
 
-
+@Client.on_callback_query(filters.regex("^utag_speed_custom$"))
+async def utag_speed_custom_callback(client: Client, cq: CallbackQuery):
+    if not cq.from_user:
+        return
+    user_id = cq.from_user.id
+    user_states[user_id] = "waiting_for_utag_speed"
+    await _edit_cq(
+        cq,
+        f"✏️ **Maxsus tezlik**\n\n"
+        f"{UTAG_SPEED_MIN}s dan {UTAG_SPEED_MAX}s gacha raqam yuboring.\n"
+        f"Masalan: `0.8` yoki `2.5`\n\n"
+        f"{SPEED_WARNING}",
+        [[InlineKeyboardButton("❌ Bekor qilish", callback_data="utag_speed")]],
+    )
+    await cq.answer()
 
 
 @Client.on_callback_query(filters.regex("^utag_set_speed_(.+)$"))
-
 async def utag_set_speed_callback(client: Client, cq: CallbackQuery):
-
     if not cq.from_user:
-
         return
-
     user_id = cq.from_user.id
-
     try:
-
-        speed = cq.matches[0].group(1)
-
-    except (IndexError, AttributeError):
-
+        speed = float(cq.matches[0].group(1))
+    except (IndexError, AttributeError, ValueError):
         await cq.answer("Xatolik", show_alert=True)
-
         return
 
+    speed = max(UTAG_SPEED_MIN, min(UTAG_SPEED_MAX, round(speed, 1)))
     if user_id not in user_settings:
-
         user_settings[user_id] = {}
+    user_settings[user_id]["utag_speed_seconds"] = speed
 
-    user_settings[user_id]["utag_speed"] = speed
-
-    speed_labels = {"slow": "🐢 Sekin", "normal": "⚡ Normal", "fast": "🚀 Tez"}
-
-
-
+    warning = f"\n\n{SPEED_WARNING}" if is_high_speed_risk(speed) else ""
     await _edit_cq(
         cq,
-        f"✅ **Tezlik o'zgartirildi!**\n\nYangi tezlik: {speed_labels.get(speed, '⚡ Normal')}",
-        [[InlineKeyboardButton("🔙 Orqaga", callback_data="utag_settings")]]
+        f"✅ **Tezlik o'zgartirildi!**\n\nYangi tezlik: {format_speed_label(speed)}{warning}",
+        [[InlineKeyboardButton("🔙 Orqaga", callback_data="utag_settings")]],
     )
     await cq.answer()
 
@@ -1778,10 +1743,10 @@ async def utag_typing_callback(client: Client, cq: CallbackQuery):
 
     await _edit_cq(
         cq,
-        "⌨️ **Typing Status**\n\n"
+        "⌨️ **Typing status (Utag)**\n\n"
         f"Hozirgi: {status}\n\n"
-        "Utag paytida 'typing...' (yozmoqda) statusi chiqsinmi?\n"
-        "Bu botni haqiqiy insonga o'xshatish uchun xizmat qiladi.",
+        "Utag paytida guruhda 'typing...' (yozmoqda) statusi chiqsinmi?\n"
+        "Bu faqat tagging jarayoniga tegishli.",
         [
             [
                 InlineKeyboardButton("✅ Yoqish", callback_data="utag_set_typing_on"),
@@ -1835,6 +1800,57 @@ async def utag_set_typing_callback(client: Client, cq: CallbackQuery):
 
 
 
+
+def _build_action_status_menu(settings: dict, back_callback: str = "utag_settings") -> tuple[str, list]:
+    lines = ["🎭 **Action Status Sozlamalari**\n"]
+    lines.append("Global Telegram action statuslari (Utag taggingdan alohida):\n")
+    buttons = []
+    for key, (label, _action) in ACTION_STATUS_OPTIONS.items():
+        lines.append(f"{label}: {get_action_status_label(settings, key)}")
+        short = label.split(" ", 1)[0]
+        buttons.append([InlineKeyboardButton(f"{short} — {get_action_status_label(settings, key)}", callback_data=f"action_status_toggle_{key}")])
+    lines.append("\n💡 Typing status Utag sozlamalarida boshqariladi.")
+    buttons.append([InlineKeyboardButton("🔙 Orqaga", callback_data=back_callback)])
+    return "\n".join(lines), buttons
+
+
+@Client.on_callback_query(filters.regex("^action_status_menu(_account)?$"))
+async def action_status_menu_callback(client: Client, cq: CallbackQuery):
+    if not cq.from_user:
+        return
+    user_id = cq.from_user.id
+    settings = user_settings.get(user_id, {})
+    back = "menu_main" if cq.matches[0].group(1) else "utag_settings"
+    if user_id not in user_settings:
+        user_settings[user_id] = {}
+    user_settings[user_id]["action_status_back"] = back
+    text, buttons = _build_action_status_menu(settings, back_callback=back)
+    await _edit_cq(cq, text, buttons)
+    await cq.answer()
+
+
+@Client.on_callback_query(filters.regex("^action_status_toggle_(.+)$"))
+async def action_status_toggle_callback(client: Client, cq: CallbackQuery):
+    if not cq.from_user:
+        return
+    user_id = cq.from_user.id
+    try:
+        key = cq.matches[0].group(1)
+    except (IndexError, AttributeError):
+        await cq.answer("Xatolik", show_alert=True)
+        return
+    if key not in ACTION_STATUS_OPTIONS:
+        await cq.answer("Noma'lum sozlama", show_alert=True)
+        return
+    if user_id not in user_settings:
+        user_settings[user_id] = {}
+    current = user_settings[user_id].get(key, False)
+    user_settings[user_id][key] = not current
+    settings = user_settings[user_id]
+    back = settings.get("action_status_back", "utag_settings")
+    text, buttons = _build_action_status_menu(settings, back_callback=back)
+    await _edit_cq(cq, text, buttons)
+    await cq.answer("Sozlama yangilandi")
 
 
 @Client.on_callback_query(filters.regex("^utag_auto_stop_delete$"))
@@ -3612,6 +3628,37 @@ async def handle_new_resume_command(client: Client, message: Message, user_id: i
 
 
 
+async def handle_custom_utag_speed(client: Client, message: Message, user_id: int):
+    """Custom UTag tezligi qiymatini qabul qilish."""
+    raw = message.text.strip().replace(",", ".")
+    try:
+        speed = round(float(raw), 1)
+    except ValueError:
+        await message.reply_text(
+            f"❌ Noto'g'ri format! {UTAG_SPEED_MIN}s — {UTAG_SPEED_MAX}s orasida raqam yuboring.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Bekor qilish", callback_data="utag_speed")]]),
+        )
+        return
+
+    if speed < UTAG_SPEED_MIN or speed > UTAG_SPEED_MAX:
+        await message.reply_text(
+            f"❌ Tezlik {UTAG_SPEED_MIN}s dan {UTAG_SPEED_MAX}s gacha bo'lishi kerak!",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Bekor qilish", callback_data="utag_speed")]]),
+        )
+        return
+
+    user_states.pop(user_id, None)
+    if user_id not in user_settings:
+        user_settings[user_id] = {}
+    user_settings[user_id]["utag_speed_seconds"] = speed
+
+    warning = f"\n\n{SPEED_WARNING}" if is_high_speed_risk(speed) else ""
+    await message.reply_text(
+        f"✅ **Tezlik o'zgartirildi!**\n\nYangi tezlik: {format_speed_label(speed)}{warning}",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Orqaga", callback_data="utag_settings")]]),
+    )
+
+
 async def handle_custom_timer(client: Client, message: Message, user_id: int):
 
     """Custom taymer qiymatini qabul qilish va validatsiya"""
@@ -3911,6 +3958,14 @@ async def utag_state_handler(client: Client, message: Message):
     if state == "waiting_for_custom_timer":
 
         await handle_custom_timer(client, message, user_id)
+
+        return
+
+
+
+    if state == "waiting_for_utag_speed":
+
+        await handle_custom_utag_speed(client, message, user_id)
 
         return
 
