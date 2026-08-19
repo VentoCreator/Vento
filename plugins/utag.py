@@ -712,8 +712,6 @@ async def run_utag_process(client: Client, process_key: str, user_client: Client
     def _settings() -> dict:
         return user_settings.get(user_id, {})
 
-    ActionEngine.start_keeper(process_key, user_client, chat_id, _settings, _settings)
-
     try:
         for member in members:
             if process_key not in active_utag_processes:
@@ -793,8 +791,7 @@ async def run_utag_process(client: Client, process_key: str, user_client: Client
                 plain_message_text = plain_mention
 
             settings = _settings()
-            await ActionEngine.apply_pre_dispatch_override(user_client, chat_id, settings, settings)
-            await ActionEngine.send_utag_typing(user_client, chat_id, settings)
+            await ActionEngine.apply_dispatch_suppression(user_client, chat_id, settings, settings)
             parse_mode = (
                 ParseMode.HTML
                 if "tg://user?id=" in message_text or "<tg-emoji" in message_text or "tg://emoji" in message_text
@@ -890,7 +887,6 @@ async def run_utag_process(client: Client, process_key: str, user_client: Client
             user_client, chat_id, tagged_count, delete_timer, show_completion
         )
     finally:
-        await ActionEngine.stop_keeper_async(process_key, user_client, chat_id)
         stop_flags.pop(stop_key, None)
         utag_process_tasks.pop(process_key, None)
         active_utag_processes.pop(process_key, None)

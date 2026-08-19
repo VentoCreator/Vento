@@ -1,5 +1,5 @@
 """
-Action Sozlamalari — flat one-click toggle panel.
+Action Sozlamalari — flat Hide/Suppress toggles (ON = send CANCEL).
 """
 from __future__ import annotations
 
@@ -12,12 +12,12 @@ from config import user_settings
 from session_manager import get_user_client
 from utag_system.action_engine import (
     ActionEngine,
-    CHAT_ACTION_TOGGLE_KEYS,
+    CHAT_ACTION_SUPPRESS_KEYS,
     FLAT_ACTION_TOGGLES,
+    flip_suppression,
     get_toggle_by_key,
+    is_suppressed,
     toggle_button_label,
-    toggle_on,
-    flip_toggle,
 )
 
 logger = logging.getLogger(__name__)
@@ -47,17 +47,15 @@ def _get_user_active_chat_ids(user_id: int) -> list[int]:
 def _build_flat_menu(settings: dict, back: str) -> tuple[str, list]:
     text = (
         "⚙️ **Action Sozlamalari**\n\n"
-        "Har bir tugmani bosing — ON/OFF almashtiriladi.\n"
-        "OFF qilganda faol status darhol bekor qilinadi (CANCEL).\n"
-        "ON qilganda faol vazifalar davomida status har 4 soniyada yangilanadi.\n\n"
+        "🟢 **ON** = status yashirish (CANCEL yuboriladi)\n"
+        "🔴 **OFF** = Telegram standart xatti-harakati\n\n"
         "💡 UTag typing alohida: Utag → Sozlamalar."
     )
     buttons = []
     for key, label, _action in FLAT_ACTION_TOGGLES:
-        enabled = toggle_on(settings, key)
         buttons.append([
             InlineKeyboardButton(
-                toggle_button_label(label, enabled),
+                toggle_button_label(label, is_suppressed(settings, key)),
                 callback_data=f"action_flat_toggle_{key}",
             )
         ])
@@ -93,20 +91,18 @@ async def action_flat_toggle(client: Client, cq: CallbackQuery):
         return
 
     settings = _ensure_settings(user_id)
-    was_on = toggle_on(settings, key)
-    flip_toggle(settings, key)
-    is_on = toggle_on(settings, key)
+    flip_suppression(settings, key)
+    hide_on = is_suppressed(settings, key)
 
     try:
         user_client = await get_user_client(user_id)
         if key == "privacy_online_status":
             await ActionEngine.apply_online_presence(user_client, settings)
-        elif key in CHAT_ACTION_TOGGLE_KEYS and was_on and not is_on:
-            await ActionEngine.on_toggle_off(
+        elif hide_on and key in CHAT_ACTION_SUPPRESS_KEYS:
+            await ActionEngine.on_suppression_enabled(
                 user_client,
-                user_id,
-                key,
                 _get_user_active_chat_ids(user_id),
+                user_id,
             )
     except Exception as exc:
         logger.warning("[ActionStatus] toggle apply failed user=%s key=%s: %s", user_id, key, exc)
