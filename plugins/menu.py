@@ -88,15 +88,24 @@ async def state_cleaner(client: Client, message: Message):
     current_state = user_states.get(uid)
     logger.debug(f"[DIAG_STATE_CLEANER] User {uid}, text={txt[:30]}, state={current_state}")
     
-    # Don't interfere with login states - let login handlers handle them
+    # If user sends a command (like /start) or a menu button, force-reset states to prevent getting trapped
+    if txt.startswith("/") or txt in _MENU_TEXTS:
+        user_states.pop(uid, None)
+        try:
+            from login_system import login_service
+            await login_service.state_manager.cleanup_session(uid)
+            login_service.session_manager.cleanup_pending(uid)
+        except Exception:
+            pass
+        raise ContinuePropagation
+    
+    # Don't interfere with login states for normal text - let login handlers handle them
     if current_state in ["waiting_for_phone", "waiting_for_code", "waiting_for_password", "waiting_for_admin_approval"]:
         raise ContinuePropagation
     if current_state in ["waiting_contact_subject", "waiting_contact_message", "chat_viewing_chats", "chat_viewing_messages", "chat_sending_message", "chat_searching_user", "group_search_state"]:
         raise ContinuePropagation
     if current_state and current_state.startswith("waiting_for_timer_"):
         raise ContinuePropagation
-    if txt.startswith("/") or txt in _MENU_TEXTS:
-        user_states.pop(uid, None)
     raise ContinuePropagation
 
 @Client.on_message(filters.command("start") & filters.private)

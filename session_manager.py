@@ -89,7 +89,7 @@ async def get_user_client(user_id: int) -> Client:
         _user_clients[user_id] = client
 
         try:
-            await client.connect()
+            await asyncio.wait_for(client.connect(), timeout=10.0)
         except (AuthKeyUnregistered, AuthKeyDuplicated, SessionExpired, SessionRevoked):
             _user_clients.pop(user_id, None)
             _client_last_used.pop(user_id, None)
@@ -112,6 +112,6 @@ async def close_user_client(user_id: int):
         _client_last_used.pop(user_id, None)
         if client and client.is_connected:
             try:
-                await client.disconnect()
+                await asyncio.wait_for(client.disconnect(), timeout=10.0)
             except:
                 pass

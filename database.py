@@ -35,7 +35,14 @@ class SafeCursorContextManager:
         return False
 
 class SafeDatabaseConnection:
-    """Wrapper around aiosqlite connection to automatically manage global write locking."""
+    """Wrapper around aiosqlite connection to automatically manage global write locking.
+    
+    IMPORTANT ARCHITECTURAL RULE:
+    The global `db_write_lock` is held for the duration of write transactions. To prevent 
+    system-wide database lock starvation, NEVER perform or await external network requests 
+    (such as Pyrogram client/app API calls) while this connection holds a write lock. 
+    Ensure all write operations are committed or rolled back before making external network calls.
+    """
     def __init__(self, conn):
         self._conn = conn
         self._write_locked = False

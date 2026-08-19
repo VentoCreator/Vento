@@ -7,7 +7,7 @@ from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 from login_system.login_core import LoginService, LoginError, SessionError
 from login_system.login_config import LoginConstants, default_settings
-from config import SUPER_ADMIN_ID, SECOND_ADMIN_ID, SESSIONS_DIR, API_ID, API_HASH, is_admin, user_states
+from config import SUPER_ADMIN_ID, SECOND_ADMIN_ID, SESSIONS_DIR, API_ID, API_HASH, is_admin, user_states, can_manage_users
 from database import register_known_user
 from error_handler import handle_errors
 import logging
@@ -68,9 +68,11 @@ class LoginHandlers:
                     reply_markup=keyboard
                 )
             else:
+                user_states.pop(user_id, None)
                 await msg.edit_text(f"❌ {message_text}\n\nQaytadan `/start` bosing.")
         
         except Exception as e:
+            user_states.pop(user_id, None)
             await message.reply_text(f"❌ Xatolik: {e}\n\nQaytadan `/start` bosing.")
         
         # StopPropagation to prevent message from reaching other handlers
@@ -138,6 +140,7 @@ class LoginHandlers:
                 reply_markup=keyboard
             )
         except Exception as e:
+            user_states.pop(user_id, None)
             await message.reply_text(f"❌ Xatolik: {e}\n\nQaytadan `/start` bosing.")
         
         # StopPropagation to prevent message from reaching other handlers
@@ -179,6 +182,7 @@ class LoginHandlers:
                 )
         
         except Exception as e:
+            user_states.pop(user_id, None)
             await message.reply_text(f"❌ Xatolik: {e}\n\nQaytadan `/start` bosing.")
         
         # StopPropagation to prevent message from reaching other handlers
@@ -273,6 +277,9 @@ class LoginHandlers:
         if not self._is_admin(admin_id):
             await callback_query.answer("⛔️ Ruxsat yo'q!", show_alert=True)
             return
+        if not await can_manage_users(admin_id):
+            await callback_query.answer("❌ Sizda bu amallni bajarish uchun Foydalanuvchilarni boshqarish yo'q!", show_alert=True)
+            return
         
         from database import add_or_update_user
         from database_adapter import LoginDatabaseAdapter
@@ -324,6 +331,9 @@ class LoginHandlers:
         admin_id = callback_query.from_user.id
         if not self._is_admin(admin_id):
             await callback_query.answer("⛔️ Ruxsat yo'q!", show_alert=True)
+            return
+        if not await can_manage_users(admin_id):
+            await callback_query.answer("❌ Sizda bu amallni bajarish uchun Foydalanuvchilarni boshqarish yo'q!", show_alert=True)
             return
         
         # Reject login
@@ -381,6 +391,9 @@ class LoginHandlers:
         admin_id = callback_query.from_user.id
         if not self._is_admin(admin_id):
             await callback_query.answer("⛔️ Ruxsat yo'q!", show_alert=True)
+            return
+        if not await can_manage_users(admin_id):
+            await callback_query.answer("❌ Sizda bu amallni bajarish uchun Foydalanuvchilarni boshqarish yo'q!", show_alert=True)
             return
 
         from pyrogram.types import LabeledPrice

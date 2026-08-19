@@ -146,8 +146,8 @@ class AuthManager:
                 app_version="Vento Userbot v3.0",
                 system_version="Windows 11 Pro 24H2"
             )
-            await client.connect()
-            sent = await client.send_code(phone)
+            await asyncio.wait_for(client.connect(), timeout=10.0)
+            sent = await asyncio.wait_for(client.send_code(phone), timeout=10.0)
             
             return client, sent.phone_code_hash
             
@@ -164,7 +164,7 @@ class AuthManager:
             True if 2FA is needed, False if login complete
         """
         try:
-            await client.sign_in(phone, phone_code_hash, code)
+            await asyncio.wait_for(client.sign_in(phone, phone_code_hash, code), timeout=10.0)
             return False  # Login complete
         except SessionPasswordNeeded:
             return True  # 2FA needed
@@ -181,7 +181,7 @@ class AuthManager:
             True if successful
         """
         try:
-            await client.check_password(password)
+            await asyncio.wait_for(client.check_password(password), timeout=10.0)
             return True
         except Exception as e:
             raise AuthenticationError(f"Parol xato: {e}")
@@ -196,7 +196,10 @@ class AuthManager:
         """
         try:
             if client.is_connected:
-                await client.disconnect()
+                try:
+                    await asyncio.wait_for(client.disconnect(), timeout=10.0)
+                except Exception:
+                    pass
             
             # Move session to final directory (overwrites existing session if present)
             if not self.session_manager.move_session_to_final(user_id):
@@ -242,10 +245,9 @@ class LoginService:
     
     async def start_login(self, user_id: int) -> LoginSession:
         """Start login process for user (handles both new logins and re-logins)"""
-        # Create or get existing session
-        session = await self.state_manager.get_session(user_id)
-        if not session:
-            session = await self.state_manager.create_session(user_id)
+        # Clean up any existing session first to ensure a completely fresh state
+        await self.state_manager.cleanup_session(user_id)
+        session = await self.state_manager.create_session(user_id)
         
         # Update state to waiting for phone (will overwrite existing session on completion)
         await self.state_manager.update_state(user_id, LoginState.WAITING_PHONE)
@@ -267,6 +269,8 @@ class LoginService:
                 await log_system_event("login_system", user_id, "phone_validation_failed", error_msg)
             except Exception:
                 pass
+            await self.state_manager.cleanup_session(user_id)
+            self.session_manager.cleanup_pending(user_id)
             return False, error_msg, None, None
         
         # Send code
@@ -295,12 +299,17 @@ class LoginService:
             return True, "Kod yuborildi", client, phone_code_hash
             
         except ValidationError as e:
-            await self.state_manager.update_state(user_id, LoginState.FAILED)
-            return False, str(e), None, None
-        except LoginError as e:
-            await self.state_manager.update_state(user_id, LoginState.FAILED)
+            await self.state_manager.cleanup_session(user_id)
             self.session_manager.cleanup_pending(user_id)
             return False, str(e), None, None
+        except LoginError as e:
+            await self.state_manager.cleanup_session(user_id)
+            self.session_manager.cleanup_pending(user_id)
+            return False, str(e), None, None
+        except Exception as e:
+            await self.state_manager.cleanup_session(user_id)
+            self.session_manager.cleanup_pending(user_id)
+            return False, f"Xatolik yuz berdi: {e}", None, None
     
     async def submit_code(self, user_id: int, code: str) -> Tuple[bool, str, bool]:
         """

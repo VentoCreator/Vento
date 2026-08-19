@@ -134,6 +134,9 @@ def _profile_keyboard(uid: int) -> InlineKeyboardMarkup:
 
 @Client.on_callback_query(filters.regex("^admin_stats$") & is_admin_cb)
 async def admin_stats_callback(client: Client, cq: CallbackQuery):
+    if not await can_manage_users(cq.from_user.id):
+        await cq.answer("❌ Sizda bu amallni bajarish uchun Foydalanuvchilarni boshqarish yo'q!", show_alert=True)
+        return
     stats = await get_admin_stats()
     text = (
         "📊 **Admin Statistika**\n\n"

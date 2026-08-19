@@ -93,6 +93,9 @@ async def admin_panel_callback(client: Client, cq: CallbackQuery):
 
 @Client.on_callback_query(filters.regex("^admin_sub_list$") & is_admin_callback_filter)
 async def admin_sub_list_callback(client: Client, cq: CallbackQuery):
+    if not await can_manage_users(cq.from_user.id):
+        await cq.answer("❌ Sizda bu amallni bajarish uchun Foydalanuvchilarni boshqarish yo'q!", show_alert=True)
+        return
     users = await get_all_users()
     
     if not users:
@@ -167,6 +170,9 @@ async def admin_sub_list_callback(client: Client, cq: CallbackQuery):
 
 @Client.on_callback_query(filters.regex("^admin_free_list$") & is_admin_callback_filter)
 async def admin_free_list_callback(client: Client, cq: CallbackQuery):
+    if not await can_manage_users(cq.from_user.id):
+        await cq.answer("❌ Sizda bu amallni bajarish uchun Foydalanuvchilarni boshqarish yo'q!", show_alert=True)
+        return
     free_users = await get_all_free_users()
     
     if not free_users:
@@ -289,6 +295,9 @@ async def admin_view_baza_callback(client: Client, cq: CallbackQuery):
 
 @Client.on_callback_query(filters.regex(r"^admin_del_baza_confirm_(.+)$") & is_admin_callback_filter)
 async def admin_del_baza_confirm_callback(client: Client, cq: CallbackQuery):
+    if not await can_clear_db(cq.from_user.id):
+        await cq.answer("❌ Sizda bu amallni bajarish uchun Bazani tozalash yo'q!", show_alert=True)
+        return
     gid = cq.matches[0].group(1)
     group = await get_group_info(gid)
     if not group:
@@ -309,6 +318,9 @@ async def admin_del_baza_confirm_callback(client: Client, cq: CallbackQuery):
 
 @Client.on_callback_query(filters.regex(r"^admin_del_baza_do_(.+)$") & is_admin_callback_filter)
 async def admin_del_baza_do_callback(client: Client, cq: CallbackQuery):
+    if not await can_clear_db(cq.from_user.id):
+        await cq.answer("❌ Sizda bu amallni bajarish uchun Bazani tozalash yo'q!", show_alert=True)
+        return
     gid = cq.matches[0].group(1)
     await delete_scraped_group(gid)
     await cq.message.edit_text(
@@ -859,6 +871,9 @@ async def broadcast_handler(client: Client, message: Message):
 @Client.on_callback_query(filters.regex("^broadcast_retry$") & is_admin_callback_filter)
 async def broadcast_retry_callback(client: Client, cq: CallbackQuery):
     """Xatoga tushgan userlarga qayta xabar yuborish"""
+    if not await can_broadcast(cq.from_user.id):
+        await cq.answer("❌ Sizda bu amallni bajarish uchun Broadcast yo'q!", show_alert=True)
+        return
     from config import user_states
     
     uid = cq.from_user.id
@@ -1776,6 +1791,9 @@ async def admin_task_control_callback(client: Client, cq: CallbackQuery):
 @Client.on_callback_query(filters.regex(r"^admin_task_terminate_(\d+)$") & is_admin_callback_filter)
 async def admin_task_terminate_callback(client: Client, cq: CallbackQuery):
     """Taskni to'xtatish"""
+    if not await can_ban(cq.from_user.id):
+        await cq.answer("❌ Sizda bu amallni bajarish uchun Ban qilish yo'q!", show_alert=True)
+        return
     user_id = int(cq.matches[0].group(1))
     
     success = await terminate_user_task(user_id, ban_user=False)
@@ -1800,6 +1818,9 @@ async def admin_task_terminate_callback(client: Client, cq: CallbackQuery):
 @Client.on_callback_query(filters.regex(r"^admin_task_terminate_ban_(\d+)$") & is_admin_callback_filter)
 async def admin_task_terminate_ban_callback(client: Client, cq: CallbackQuery):
     """Taskni to'xtatish va userni ban qilish"""
+    if not await can_ban(cq.from_user.id):
+        await cq.answer("❌ Sizda bu amallni bajarish uchun Ban qilish yo'q!", show_alert=True)
+        return
     user_id = int(cq.matches[0].group(1))
     
     success = await terminate_user_task(user_id, ban_user=True)
