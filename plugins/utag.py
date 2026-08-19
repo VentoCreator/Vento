@@ -1320,7 +1320,7 @@ async def utag_settings_callback(client: Client, cq: CallbackQuery):
             ],
             [
                 InlineKeyboardButton("⏰ Taymerli habar", callback_data="utag_timer_menu"),
-                InlineKeyboardButton("🎭 Action Status & Privacy", callback_data="action_status_menu")
+                InlineKeyboardButton("⚙️ Action Sozlamalari", callback_data="action_status_menu")
             ],
             [
                 InlineKeyboardButton("🔙 Orqaga", callback_data="menu_utag")

@@ -367,7 +367,7 @@ async def menu_button_handler(client: Client, message: Message):
             await message.reply_text(
                 "👤 **Akkaunt sozlamalari**",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🎭 Action Status & Privacy", callback_data="action_status_menu_account")],
+                    [InlineKeyboardButton("⚙️ Action Sozlamalari", callback_data="action_status_menu_account")],
                     [InlineKeyboardButton("🚪 Akkauntni uzish (Logout)", callback_data="logout")],
                     [InlineKeyboardButton("🔙 Bosh menyu", callback_data="menu_main")],
                 ])
