@@ -24,13 +24,6 @@ SPEED_WARNING = (
 
 LEGACY_SPEED_MAP = {"slow": 5.0, "normal": 2.5, "fast": 1.0}
 
-# Global Telegram action statuses (separate from UTag-specific typing toggle)
-ACTION_STATUS_OPTIONS = {
-    "action_status_choose_sticker": ("🎨 Sticker tanlash", "choose_sticker"),
-    "action_status_playing": ("🎮 O'yin o'ynash", "playing"),
-    "action_status_record_voice": ("🎤 Ovoz yozish", "record_voice"),
-}
-
 
 def get_utag_speed_seconds(settings: dict) -> float:
     """Resolve tag delay in seconds from user settings (supports legacy presets)."""

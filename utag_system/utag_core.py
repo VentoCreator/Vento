@@ -6,6 +6,7 @@ import random
 import time
 import logging
 from typing import Dict, List, Optional, Any
+from utag_system.action_engine import ActionEngine
 from utag_system.utag_helpers import (
     get_utag_speed_seconds,
     send_completion_notification,
@@ -789,12 +790,7 @@ class UtagService:
                 
                 # Typing action simulation
                 logger.info(f"[STEP 12] Iteration {idx}: Sending typing action")
-                if typing_status:
-                    try:
-                        await user_client.send_chat_action(chat_id, "typing")
-                        await asyncio.sleep(0.5)
-                    except Exception as e:
-                        logger.debug(f"[DEBUG UTAG] Failed to send typing status: {e}")
+                await ActionEngine.send_utag_typing(user_client, chat_id, settings)
                 
                 # Choose parse_mode: only use 'html' when tg-emoji is present, otherwise omit to avoid parsing issues
                 use_html_parse = "<tg-emoji" in message_text or "tg://emoji" in message_text

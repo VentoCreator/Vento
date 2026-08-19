@@ -31,18 +31,17 @@ from session_manager import get_user_client
 from database import get_user_utag_commands, save_user_utag_command, add_utag_timer, get_utag_timer, get_user_utag_timers, update_utag_timer_last_sent, set_utag_timer_active, delete_utag_timer, get_all_active_utag_timers
 
 from utag_system import utag_service
+from utag_system.action_engine import ActionEngine
 from utag_system.utag_helpers import (
     UTAG_SPEED_MIN,
     UTAG_SPEED_MAX,
     UTAG_SPEED_DEFAULT,
     SPEED_WARNING,
-    ACTION_STATUS_OPTIONS,
     get_utag_speed_seconds,
     format_speed_label,
     is_high_speed_risk,
     edit_and_auto_delete,
     send_completion_notification,
-    get_action_status_label,
 )
 
 
@@ -817,12 +816,7 @@ async def run_utag_process(client: Client, process_key: str, user_client: Client
         
 
         try:
-            if typing_status:
-                try:
-                    await user_client.send_chat_action(chat_id, "typing")
-                    await asyncio.sleep(0.5)
-                except:
-                    pass
+            await ActionEngine.send_utag_typing(user_client, chat_id, user_settings.get(user_id, {}))
             parse_mode = ParseMode.HTML if "tg://user?id=" in message_text or "<tg-emoji" in message_text or "tg://emoji" in message_text else None
             logger.info(f"[UTAG] Sending message with parse_mode={parse_mode}, text={message_text[:50]}...")
             
@@ -1326,7 +1320,7 @@ async def utag_settings_callback(client: Client, cq: CallbackQuery):
             ],
             [
                 InlineKeyboardButton("⏰ Taymerli habar", callback_data="utag_timer_menu"),
-                InlineKeyboardButton("🎭 Action Status", callback_data="action_status_menu")
+                InlineKeyboardButton("🎭 Action Status & Privacy", callback_data="action_status_menu")
             ],
             [
                 InlineKeyboardButton("🔙 Orqaga", callback_data="menu_utag")
@@ -1799,58 +1793,6 @@ async def utag_set_typing_callback(client: Client, cq: CallbackQuery):
     await cq.answer()
 
 
-
-
-def _build_action_status_menu(settings: dict, back_callback: str = "utag_settings") -> tuple[str, list]:
-    lines = ["🎭 **Action Status Sozlamalari**\n"]
-    lines.append("Global Telegram action statuslari (Utag taggingdan alohida):\n")
-    buttons = []
-    for key, (label, _action) in ACTION_STATUS_OPTIONS.items():
-        lines.append(f"{label}: {get_action_status_label(settings, key)}")
-        short = label.split(" ", 1)[0]
-        buttons.append([InlineKeyboardButton(f"{short} — {get_action_status_label(settings, key)}", callback_data=f"action_status_toggle_{key}")])
-    lines.append("\n💡 Typing status Utag sozlamalarida boshqariladi.")
-    buttons.append([InlineKeyboardButton("🔙 Orqaga", callback_data=back_callback)])
-    return "\n".join(lines), buttons
-
-
-@Client.on_callback_query(filters.regex("^action_status_menu(_account)?$"))
-async def action_status_menu_callback(client: Client, cq: CallbackQuery):
-    if not cq.from_user:
-        return
-    user_id = cq.from_user.id
-    settings = user_settings.get(user_id, {})
-    back = "menu_main" if cq.matches[0].group(1) else "utag_settings"
-    if user_id not in user_settings:
-        user_settings[user_id] = {}
-    user_settings[user_id]["action_status_back"] = back
-    text, buttons = _build_action_status_menu(settings, back_callback=back)
-    await _edit_cq(cq, text, buttons)
-    await cq.answer()
-
-
-@Client.on_callback_query(filters.regex("^action_status_toggle_(.+)$"))
-async def action_status_toggle_callback(client: Client, cq: CallbackQuery):
-    if not cq.from_user:
-        return
-    user_id = cq.from_user.id
-    try:
-        key = cq.matches[0].group(1)
-    except (IndexError, AttributeError):
-        await cq.answer("Xatolik", show_alert=True)
-        return
-    if key not in ACTION_STATUS_OPTIONS:
-        await cq.answer("Noma'lum sozlama", show_alert=True)
-        return
-    if user_id not in user_settings:
-        user_settings[user_id] = {}
-    current = user_settings[user_id].get(key, False)
-    user_settings[user_id][key] = not current
-    settings = user_settings[user_id]
-    back = settings.get("action_status_back", "utag_settings")
-    text, buttons = _build_action_status_menu(settings, back_callback=back)
-    await _edit_cq(cq, text, buttons)
-    await cq.answer("Sozlama yangilandi")
 
 
 @Client.on_callback_query(filters.regex("^utag_auto_stop_delete$"))
