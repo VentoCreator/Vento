@@ -12,6 +12,7 @@ from config import user_settings
 from session_manager import get_user_client
 from utag_system.action_engine import (
     ActionEngine,
+    CHAT_ACTION_TOGGLE_KEYS,
     FLAT_ACTION_TOGGLES,
     get_toggle_by_key,
     toggle_button_label,
@@ -34,10 +35,21 @@ def _edit_cq(cq: CallbackQuery, text: str, buttons: list | None = None):
     return cq.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
 
 
+def _get_user_active_chat_ids(user_id: int) -> list[int]:
+    try:
+        from plugins.utag import _get_user_active_processes
+
+        return list(_get_user_active_processes(user_id))
+    except Exception:
+        return []
+
+
 def _build_flat_menu(settings: dict, back: str) -> tuple[str, list]:
     text = (
         "⚙️ **Action Sozlamalari**\n\n"
         "Har bir tugmani bosing — ON/OFF almashtiriladi.\n"
+        "OFF qilganda faol status darhol bekor qilinadi (CANCEL).\n"
+        "ON qilganda faol vazifalar davomida status har 4 soniyada yangilanadi.\n\n"
         "💡 UTag typing alohida: Utag → Sozlamalar."
     )
     buttons = []
@@ -81,15 +93,23 @@ async def action_flat_toggle(client: Client, cq: CallbackQuery):
         return
 
     settings = _ensure_settings(user_id)
+    was_on = toggle_on(settings, key)
     flip_toggle(settings, key)
+    is_on = toggle_on(settings, key)
 
-    # Apply online presence immediately when toggled
-    if key == "privacy_online_status":
-        try:
-            user_client = await get_user_client(user_id)
+    try:
+        user_client = await get_user_client(user_id)
+        if key == "privacy_online_status":
             await ActionEngine.apply_online_presence(user_client, settings)
-        except Exception as exc:
-            logger.warning("[ActionStatus] online toggle apply failed user=%s: %s", user_id, exc)
+        elif key in CHAT_ACTION_TOGGLE_KEYS and was_on and not is_on:
+            await ActionEngine.on_toggle_off(
+                user_client,
+                user_id,
+                key,
+                _get_user_active_chat_ids(user_id),
+            )
+    except Exception as exc:
+        logger.warning("[ActionStatus] toggle apply failed user=%s key=%s: %s", user_id, key, exc)
 
     await _render_menu(cq, settings)
     await cq.answer("✅ Yangilandi")

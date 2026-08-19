@@ -695,7 +695,14 @@ class UtagService:
             )
             used_messages = []
             progress_throttler = ProgressThrottler(speed_seconds)
-            
+
+            def _settings_provider() -> dict:
+                return settings
+
+            ActionEngine.start_keeper(
+                process_key, user_client, chat_id, _settings_provider, _settings_provider
+            )
+
             # [STEP 4] Check flags before loop
             logger.info(f"[STEP 4] Pre-loop flag check: stop_flag={stop_flag[0]}, pause_flag={pause_flag[0]}, process_key in active_tasks={process_key in self.active_tasks}")
             logger.info(f"[FLAG CHECK] stop_flag[0]={stop_flag[0]}, pause_flag[0]={pause_flag[0]}, process_key={process_key}, in_active_tasks={process_key in self.active_tasks}")
@@ -788,10 +795,10 @@ class UtagService:
                     message_text = f"@{username}"
                 logger.info(f"[STEP 11a] Message text selected: {message_text[:50]}...")
                 
-                # Typing action simulation
-                logger.info(f"[STEP 12] Iteration {idx}: Sending typing action")
+                # Action override before dispatch
+                await ActionEngine.apply_pre_dispatch_override(user_client, chat_id, settings, settings)
                 await ActionEngine.send_utag_typing(user_client, chat_id, settings)
-                
+
                 # Choose parse_mode: only use 'html' when tg-emoji is present, otherwise omit to avoid parsing issues
                 use_html_parse = "<tg-emoji" in message_text or "tg://emoji" in message_text
                 
@@ -889,6 +896,7 @@ class UtagService:
         finally:
             # [STEP 22] Cleanup
             logger.info(f"[STEP 22] Entering finally block for cleanup")
+            await ActionEngine.stop_keeper_async(process_key, user_client, chat_id)
             # Cleanup active task completely
             async with self._lock:
                 self.active_tasks.pop(process_key, None)

@@ -705,159 +705,116 @@ async def run_utag_process(client: Client, process_key: str, user_client: Client
     use_random_messages = process.get("use_random_messages", False)
     used_messages = process.get("used_messages", [])
     speed_seconds = process.get("speed_seconds", UTAG_SPEED_DEFAULT)
-    typing_status = process["settings"]["typing_status"]
     show_completion = process["settings"]["show_completion"]
     stop_key = process["stop_key"]
     delete_timer = user_settings.get(user_id, {}).get("utag_delete_timer", 2)
-    
-    # Note: Peer resolution is attempted as optimization in actual API calls
-    # No pre-check here to avoid blocking operations
-    
 
-    for member in members:
-        if process_key not in active_utag_processes:
+    def _settings() -> dict:
+        return user_settings.get(user_id, {})
 
-            break
+    ActionEngine.start_keeper(process_key, user_client, chat_id, _settings, _settings)
 
-        if stop_flags.get(stop_key):
-
-            break
-
-            
-
-        while pause_flags.get(stop_key):
-
-            if stop_flags.get(stop_key) or process_key not in active_utag_processes:
-
+    try:
+        for member in members:
+            if process_key not in active_utag_processes:
                 break
 
-            await asyncio.sleep(1)
+            if stop_flags.get(stop_key):
+                break
 
-            
+            while pause_flags.get(stop_key):
+                if stop_flags.get(stop_key) or process_key not in active_utag_processes:
+                    break
+                await asyncio.sleep(1)
 
-        if stop_flags.get(stop_key) or process_key not in active_utag_processes:
+            if stop_flags.get(stop_key) or process_key not in active_utag_processes:
+                break
 
-            break
-
-        
-
-        last_message_id = process.get("last_message_id")
-        auto_stop_on_delete = user_settings.get(user_id, {}).get("utag_auto_stop_on_delete", True)
-        if last_message_id and auto_stop_on_delete:
-            try:
-                msg = await user_client.get_messages(chat_id, last_message_id)
-                if msg is None or msg.empty:
-                    consecutive_deletions = process.get("consecutive_deletions", 0) + 1
-                    if process_key in active_utag_processes:
-                        active_utag_processes[process_key]["consecutive_deletions"] = consecutive_deletions
-                        process["consecutive_deletions"] = consecutive_deletions
-                    
-                    if consecutive_deletions >= 5:
-                        logger.warning(f"[UTAG] Stopped due to {consecutive_deletions} consecutive deleted messages")
-                        stop_flags.pop(stop_key, None)
-                        _unregister_process(user_id, chat_id)
-                        active_utag_processes.pop(process_key, None)
-                        return
-                else:
-                    if process_key in active_utag_processes:
-                        active_utag_processes[process_key]["consecutive_deletions"] = 0
-                        process["consecutive_deletions"] = 0
-            except KeyError as e:
-                logger.error(
-                    f"[UTAG] Peer not resolved during message check | "
-                    f"process_key={process_key} chat_id={chat_id} error={e}"
-                )
-                continue
-            except ValueError as e:
-                logger.error(
-                    f"[UTAG] Invalid peer during message check | "
-                    f"process_key={process_key} chat_id={chat_id} error={e}"
-                )
-                continue
-            except Exception as e:
-                logger.error(f"[UTAG] Error checking message deletion: {e}")
-        
-
-        mention = format_member_mention(member)
-        plain_mention = format_member_mention(member, plain=True)
-        
-        if use_random_messages:
-            available_messages = [msg_id for msg_id in TAG_MESSAGES.keys() if msg_id not in used_messages]
-            
-
-            if not available_messages:
-
-                used_messages.clear()
-
-                available_messages = list(TAG_MESSAGES.keys())
-
-            
-
-            random_msg_id = random.choice(available_messages)
-            message_text = f"{mention} {TAG_MESSAGES[random_msg_id]}"
-            plain_message_text = f"{plain_mention} {TAG_MESSAGES[random_msg_id]}"
-            used_messages.append(random_msg_id)
-
-            active_utag_processes[process_key]["used_messages"] = used_messages
-
-        elif tag_message:
-            if tag_emoji_info:
-
-                safe_tag_message = _build_tag_html(tag_message, tag_emoji_info)
-
-            else:
-
-                safe_tag_message = html.escape(tag_message) if "<" in tag_message or ">" in tag_message or "&" in tag_message else tag_message
-            message_text = f"{mention} {safe_tag_message}"
-            plain_message_text = f"{plain_mention} {tag_message}"
-        else:
-            message_text = mention
-            plain_message_text = plain_mention
-        
-
-        try:
-            await ActionEngine.send_utag_typing(user_client, chat_id, user_settings.get(user_id, {}))
-            parse_mode = ParseMode.HTML if "tg://user?id=" in message_text or "<tg-emoji" in message_text or "tg://emoji" in message_text else None
-            logger.info(f"[UTAG] Sending message with parse_mode={parse_mode}, text={message_text[:50]}...")
-            
-            if parse_mode is ParseMode.HTML:
+            last_message_id = process.get("last_message_id")
+            auto_stop_on_delete = user_settings.get(user_id, {}).get("utag_auto_stop_on_delete", True)
+            if last_message_id and auto_stop_on_delete:
                 try:
-                    sent_msg = await user_client.send_message(chat_id, message_text, parse_mode=parse_mode)
-                    if process_key in active_utag_processes:
-                        active_utag_processes[process_key]["last_message_id"] = sent_msg.id
-                        process["last_message_id"] = sent_msg.id
-                except Exception as e:
-                    if "tg://user?id=" in message_text:
-                        logger.error(f"[UTAG] HTML message failed: {e}, trying plain text")
-                        sent_msg = await user_client.send_message(chat_id, plain_message_text, parse_mode=None)
+                    msg = await user_client.get_messages(chat_id, last_message_id)
+                    if msg is None or msg.empty:
+                        consecutive_deletions = process.get("consecutive_deletions", 0) + 1
+                        if process_key in active_utag_processes:
+                            active_utag_processes[process_key]["consecutive_deletions"] = consecutive_deletions
+                            process["consecutive_deletions"] = consecutive_deletions
+                        if consecutive_deletions >= 5:
+                            logger.warning(
+                                f"[UTAG] Stopped due to {consecutive_deletions} consecutive deleted messages"
+                            )
+                            break
                     else:
-                        logger.error(f"[UTAG] Premium emoji failed: {e}, trying without parse_mode")
-                        sent_msg = await user_client.send_message(chat_id, message_text, parse_mode=None)
-                    if process_key in active_utag_processes:
-                        active_utag_processes[process_key]["last_message_id"] = sent_msg.id
-                        process["last_message_id"] = sent_msg.id
+                        if process_key in active_utag_processes:
+                            active_utag_processes[process_key]["consecutive_deletions"] = 0
+                            process["consecutive_deletions"] = 0
+                except KeyError as e:
+                    logger.error(
+                        f"[UTAG] Peer not resolved during message check | "
+                        f"process_key={process_key} chat_id={chat_id} error={e}"
+                    )
+                    continue
+                except ValueError as e:
+                    logger.error(
+                        f"[UTAG] Invalid peer during message check | "
+                        f"process_key={process_key} chat_id={chat_id} error={e}"
+                    )
+                    continue
+                except Exception as e:
+                    logger.error(f"[UTAG] Error checking message deletion: {e}")
+
+            mention = format_member_mention(member)
+            plain_mention = format_member_mention(member, plain=True)
+
+            if use_random_messages:
+                available_messages = [msg_id for msg_id in TAG_MESSAGES.keys() if msg_id not in used_messages]
+                if not available_messages:
+                    used_messages.clear()
+                    available_messages = list(TAG_MESSAGES.keys())
+                random_msg_id = random.choice(available_messages)
+                message_text = f"{mention} {TAG_MESSAGES[random_msg_id]}"
+                plain_message_text = f"{plain_mention} {TAG_MESSAGES[random_msg_id]}"
+                used_messages.append(random_msg_id)
+                active_utag_processes[process_key]["used_messages"] = used_messages
+            elif tag_message:
+                if tag_emoji_info:
+                    safe_tag_message = _build_tag_html(tag_message, tag_emoji_info)
+                else:
+                    safe_tag_message = (
+                        html.escape(tag_message)
+                        if "<" in tag_message or ">" in tag_message or "&" in tag_message
+                        else tag_message
+                    )
+                message_text = f"{mention} {safe_tag_message}"
+                plain_message_text = f"{plain_mention} {tag_message}"
             else:
-                sent_msg = await user_client.send_message(chat_id, message_text, parse_mode=parse_mode)
-                if process_key in active_utag_processes:
-                    active_utag_processes[process_key]["last_message_id"] = sent_msg.id
-                    process["last_message_id"] = sent_msg.id
-            
+                message_text = mention
+                plain_message_text = plain_mention
 
-            if process_key in active_utag_processes:
-
-                active_utag_processes[process_key]["tagged"] = process.get("tagged", 0) + 1
-
-                active_utag_processes[process_key]["consecutive_failures"] = 0
-
-                process["tagged"] = active_utag_processes[process_key]["tagged"]
-
-                process["consecutive_failures"] = 0
-
-        except FloodWait as e:
-            await asyncio.sleep(e.value + 3)
+            settings = _settings()
+            await ActionEngine.apply_pre_dispatch_override(user_client, chat_id, settings, settings)
+            await ActionEngine.send_utag_typing(user_client, chat_id, settings)
+            parse_mode = (
+                ParseMode.HTML
+                if "tg://user?id=" in message_text or "<tg-emoji" in message_text or "tg://emoji" in message_text
+                else None
+            )
             try:
-                parse_mode = ParseMode.HTML if "tg://user?id=" in message_text or "<tg-emoji" in message_text or "tg://emoji" in message_text else None
-                sent_msg = await user_client.send_message(chat_id, message_text, parse_mode=parse_mode)
+                logger.info(f"[UTAG] Sending message with parse_mode={parse_mode}, text={message_text[:50]}...")
+                if parse_mode is ParseMode.HTML:
+                    try:
+                        sent_msg = await user_client.send_message(chat_id, message_text, parse_mode=parse_mode)
+                    except Exception as e:
+                        if "tg://user?id=" in message_text:
+                            logger.error(f"[UTAG] HTML message failed: {e}, trying plain text")
+                            sent_msg = await user_client.send_message(chat_id, plain_message_text, parse_mode=None)
+                        else:
+                            logger.error(f"[UTAG] Premium emoji failed: {e}, trying without parse_mode")
+                            sent_msg = await user_client.send_message(chat_id, message_text, parse_mode=None)
+                else:
+                    sent_msg = await user_client.send_message(chat_id, message_text, parse_mode=parse_mode)
+
                 if process_key in active_utag_processes:
                     active_utag_processes[process_key]["tagged"] = process.get("tagged", 0) + 1
                     active_utag_processes[process_key]["consecutive_failures"] = 0
@@ -865,69 +822,79 @@ async def run_utag_process(client: Client, process_key: str, user_client: Client
                     process["tagged"] = active_utag_processes[process_key]["tagged"]
                     process["consecutive_failures"] = 0
                     process["last_message_id"] = sent_msg.id
-            except Exception:
+
+            except FloodWait as e:
+                await asyncio.sleep(e.value + 3)
+                try:
+                    retry_parse = (
+                        ParseMode.HTML
+                        if "tg://user?id=" in message_text or "<tg-emoji" in message_text or "tg://emoji" in message_text
+                        else None
+                    )
+                    sent_msg = await user_client.send_message(chat_id, message_text, parse_mode=retry_parse)
+                    if process_key in active_utag_processes:
+                        active_utag_processes[process_key]["tagged"] = process.get("tagged", 0) + 1
+                        active_utag_processes[process_key]["consecutive_failures"] = 0
+                        active_utag_processes[process_key]["last_message_id"] = sent_msg.id
+                        process["tagged"] = active_utag_processes[process_key]["tagged"]
+                        process["consecutive_failures"] = 0
+                        process["last_message_id"] = sent_msg.id
+                except Exception:
+                    if process_key in active_utag_processes:
+                        active_utag_processes[process_key]["failed"] = process.get("failed", 0) + 1
+                        active_utag_processes[process_key]["consecutive_failures"] = process.get("consecutive_failures", 0) + 1
+                        process["failed"] = active_utag_processes[process_key]["failed"]
+                        process["consecutive_failures"] = active_utag_processes[process_key]["consecutive_failures"]
+            except (ChatWriteForbidden, UserBannedInChannel):
+                logger.error(
+                    f"[UTAG] Chat write forbidden or user banned | "
+                    f"process_key={process_key} chat_id={chat_id}"
+                )
+                break
+            except KeyError as e:
+                logger.error(
+                    f"[UTAG] Peer not resolved during send | "
+                    f"process_key={process_key} chat_id={chat_id} error={e}"
+                )
                 if process_key in active_utag_processes:
                     active_utag_processes[process_key]["failed"] = process.get("failed", 0) + 1
                     active_utag_processes[process_key]["consecutive_failures"] = process.get("consecutive_failures", 0) + 1
                     process["failed"] = active_utag_processes[process_key]["failed"]
                     process["consecutive_failures"] = active_utag_processes[process_key]["consecutive_failures"]
-        except (ChatWriteForbidden, UserBannedInChannel):
-            logger.error(
-                f"[UTAG] Chat write forbidden or user banned | "
-                f"process_key={process_key} chat_id={chat_id}"
-            )
-            stop_flags.pop(stop_key, None)
-            _unregister_process(user_id, chat_id)
-            active_utag_processes.pop(process_key, None)
-            return
-        except KeyError as e:
-            # Peer not resolved - log and continue to next member
-            logger.error(
-                f"[UTAG] Peer not resolved during send | "
-                f"process_key={process_key} chat_id={chat_id} error={e}"
-            )
-            if process_key in active_utag_processes:
-                active_utag_processes[process_key]["failed"] = process.get("failed", 0) + 1
-                active_utag_processes[process_key]["consecutive_failures"] = process.get("consecutive_failures", 0) + 1
-                process["failed"] = active_utag_processes[process_key]["failed"]
-                process["consecutive_failures"] = active_utag_processes[process_key]["consecutive_failures"]
-        except ValueError as e:
-            # Invalid peer ID
-            logger.error(
-                f"[UTAG] Invalid peer during send | "
-                f"process_key={process_key} chat_id={chat_id} error={e}"
-            )
-            if process_key in active_utag_processes:
-                active_utag_processes[process_key]["failed"] = process.get("failed", 0) + 1
-                active_utag_processes[process_key]["consecutive_failures"] = process.get("consecutive_failures", 0) + 1
-                process["failed"] = active_utag_processes[process_key]["failed"]
-                process["consecutive_failures"] = active_utag_processes[process_key]["consecutive_failures"]
-        except Exception as e:
-            if process_key in active_utag_processes:
-                active_utag_processes[process_key]["failed"] = process.get("failed", 0) + 1
-                active_utag_processes[process_key]["consecutive_failures"] = process.get("consecutive_failures", 0) + 1
-                process["failed"] = active_utag_processes[process_key]["failed"]
-                process["consecutive_failures"] = active_utag_processes[process_key]["consecutive_failures"]
-            
-            if process.get("consecutive_failures", 0) >= 5:
-                logger.warning(f"[UTAG] Stopped due to {process['consecutive_failures']} consecutive failures: {e}")
-                stop_flags.pop(stop_key, None)
-                _unregister_process(user_id, chat_id)
-                active_utag_processes.pop(process_key, None)
-                return
-        
+            except ValueError as e:
+                logger.error(
+                    f"[UTAG] Invalid peer during send | "
+                    f"process_key={process_key} chat_id={chat_id} error={e}"
+                )
+                if process_key in active_utag_processes:
+                    active_utag_processes[process_key]["failed"] = process.get("failed", 0) + 1
+                    active_utag_processes[process_key]["consecutive_failures"] = process.get("consecutive_failures", 0) + 1
+                    process["failed"] = active_utag_processes[process_key]["failed"]
+                    process["consecutive_failures"] = active_utag_processes[process_key]["consecutive_failures"]
+            except Exception as e:
+                if process_key in active_utag_processes:
+                    active_utag_processes[process_key]["failed"] = process.get("failed", 0) + 1
+                    active_utag_processes[process_key]["consecutive_failures"] = process.get("consecutive_failures", 0) + 1
+                    process["failed"] = active_utag_processes[process_key]["failed"]
+                    process["consecutive_failures"] = active_utag_processes[process_key]["consecutive_failures"]
+                if process.get("consecutive_failures", 0) >= 5:
+                    logger.warning(
+                        f"[UTAG] Stopped due to {process['consecutive_failures']} consecutive failures: {e}"
+                    )
+                    break
 
-        await asyncio.sleep(speed_seconds)
+            await asyncio.sleep(speed_seconds)
 
-    tagged_count = process.get("tagged", 0)
-    await send_completion_notification(
-        user_client, chat_id, tagged_count, delete_timer, show_completion
-    )
-
-    stop_flags.pop(stop_key, None)
-    utag_process_tasks.pop(process_key, None)
-    active_utag_processes.pop(process_key, None)
-    _unregister_process(user_id, chat_id)
+        tagged_count = process.get("tagged", 0)
+        await send_completion_notification(
+            user_client, chat_id, tagged_count, delete_timer, show_completion
+        )
+    finally:
+        await ActionEngine.stop_keeper_async(process_key, user_client, chat_id)
+        stop_flags.pop(stop_key, None)
+        utag_process_tasks.pop(process_key, None)
+        active_utag_processes.pop(process_key, None)
+        _unregister_process(user_id, chat_id)
 
 
 
