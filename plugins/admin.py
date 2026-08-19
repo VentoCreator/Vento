@@ -689,47 +689,116 @@ async def reject_sub_callback(client: Client, cq: CallbackQuery):
 
 @Client.on_message(filters.command("broadcast") & is_admin_filter)
 async def broadcast_handler(client: Client, message: Message):
-    """Barcha ma'lum foydalanuvchilarga xabar yuborish.
-    Foydalanish: /broadcast <matn> — yoki xabarga reply qilib /broadcast"""
+    """Barcha ro'yxatdagi foydalanuvchilarga xabar yuborish.
+    Foydalanish: /broadcast <matn> — yoki xabar yetkazganga reply qilib /broadcast.
+    Matn tayyor bolgach Send/Cancel tasdiq tugmalari chiqariladi."""
     user = await get_known_user(message.from_user.id)
     lang = user.get("language", "uz") if user else "uz"
-    
+
     allowed, remaining = check_rate_limit(message.from_user.id, "broadcast")
     if not allowed:
-        await message.reply_text(f"⏳ Broadcast limitga yetdingiz! Iltimos, 5 daqiqadan so'ng urinib ko'ring.")
+        await message.reply_text("⏳ Broadcast limitga yetdingiz! Iltimos, 5 daqiqa so'ng urinib ko'ring.")
         return
-    
+
     if not await can_broadcast(message.from_user.id):
         await message.reply_text(get_text("no_broadcast_permission", lang))
         return
-    
+
+    from config import user_states
+
     if message.reply_to_message:
-        source_msg = message.reply_to_message
+        source_msg_id = message.reply_to_message.id
+        text = None
     elif len(message.text.split(maxsplit=1)) > 1:
-        source_msg = None  # matnni quyida olamiz
+        source_msg_id = None
+        text = message.text.split(maxsplit=1)[1]
     else:
+        # Broadcast matn kiritilmagan — avval so'raymiz
+        user_states[message.from_user.id] = "broadcast_waiting_text"
         await message.reply_text(
-            "📢 **Broadcast qilish uchun:**\n\n"
-            "1️⃣ Xabarga reply qilib `/broadcast` yozing\n"
-            "2️⃣ Yoki: `/broadcast <xabar matni>`"
+            "📢 **Broadcast xabari**\n\n"
+            "Yubormoqchi bo'lgan xabaringizni yozing:",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("❌ Bekor qilish", callback_data="bc_cancel")
+            ]])
         )
         return
 
-    user_ids = await get_all_registered_user_ids()
-    if not user_ids:
-        await message.reply_text("❌ Hech qanday foydalanuvchi topilmadi.")
+    # Send / Cancel tasdiq tuyonal: tugmalar chiqariladi
+    user_states[message.from_user.id] = {
+        "type": "broadcast_confirm",
+        "source_msg_id": source_msg_id,
+        "text": text,
+        "chat_id": message.chat.id,
+    }
+
+    preview = text or "🖼 (reply qilingan xabar)"
+    await message.reply_text(
+        f"📢 **Broadcastni tasdiqlash**\n\n"
+        f"📝 Xabar:\n{preview}\n\n"
+        f"👥 Qabul qiluvchilar: hamma ro'yxatdagi foydalanuvchilar (adminlardan tashqari)\n\n"
+        f"Yuborishni tasdiqlaysizmi?",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("✅ Ha, yuborish", callback_data="bc_send")],
+            [InlineKeyboardButton("❌ Bekor qilish", callback_data="bc_cancel")]
+        ])
+    )
+
+
+@Client.on_callback_query(filters.regex("^bc_send$") & is_admin_callback_filter)
+async def bc_send_callback(client: Client, cq: CallbackQuery):
+    """Broadcast tasdiqlash — Send tugmasi bosildan ham."""
+    if not await can_broadcast(cq.from_user.id):
+        await cq.answer("❌ Sizda bu amallni bajarish uchun Broadcast huquqi yo'q!", show_alert=True)
         return
 
-    user_ids = [uid for uid in user_ids if not is_admin(uid)]
+    from config import user_states
+    uid = cq.from_user.id
+    state = user_states.get(uid)
+    if not isinstance(state, dict) or state.get("type") != "broadcast_confirm":
+        await cq.answer("❌ Broadcast ma'lumotlari topilmadi! Qaytadan /broadcast bosing.", show_alert=True)
+        return
+    user_states.pop(uid, None)
 
-    await message.reply_text("🔓 Spambot unlock qilinmoqda...")
+    user_ids = await get_all_registered_user_ids()
+    if not user_ids:
+        await cq.answer("❌ Hech qanday foydalanuvchi topilmadi.", show_alert=True)
+        return
+    user_ids = [u for u in user_ids if not is_admin(u)]
+
+    await _broadcast_send_all(
+        client,
+        uid,
+        user_ids,
+        source_msg_id=state.get("source_msg_id"),
+        text=state.get("text"),
+        chat_id=state.get("chat_id"),
+        status=cq.message,
+    )
+
+
+@Client.on_callback_query(filters.regex("^bc_cancel$") & is_admin_callback_filter)
+async def bc_cancel_callback(client: Client, cq: CallbackQuery):
+    """Broadcast bekor qilish"""
+    from config import user_states
+    user_states.pop(cq.from_user.id, None)
+    try:
+        await cq.message.edit_text("❌ Broadcast bekor qilindi.")
+    except Exception:
+        pass
+    await cq.answer("Bekor qilindi!", show_alert=False)
+
+
+async def _broadcast_send_all(client, owner_id, user_ids, source_msg_id, text, chat_id, status):
+    """Broadcast xabarni barcha foydalanuvchilarga yuborish va natijani ko'rsatish."""
+    await status.edit_text("🔓 Spambot unlock qilinmoqda...")
     unlock_success = await send_and_check_unlock(client)
     if unlock_success:
-        await message.reply_text("✅ Spambot unlock muvaffaqiyatli!")
+        await status.edit_text("✅ Spambot unlock muvaffaqiyatli!")
     else:
-        await message.reply_text("⚠️ Spambot unlock muvaffaqiyatsiz, ammo davom etmoqda...")
+        await status.edit_text("⚠️ Spambot unlock muvaffaqiyatsiz, ammo davom etmoqda...")
 
-    status = await message.reply_text(
+    await status.edit_text(
         f"📢 **Broadcast boshlandi...**\n\n"
         f"👥 Jami: {len(user_ids)} ta foydalanuvchi\n"
         f"⏳ Yuborilmoqda..."
@@ -738,33 +807,29 @@ async def broadcast_handler(client: Client, message: Message):
     sent = 0
     failed = 0
     blocked = 0
-    consecutive_failures = 0  # Ketma-ket xatoliklar sanagich
-    failed_users = []  # Xatolik bergan userlarni saqlash
+    consecutive_failures = 0
+    failed_users = []
+
+    async def _edit_status(msg: str, extra: str = ""):
+        try:
+            await status.edit_text(msg + (f"\n\n{extra}" if extra else ""))
+        except Exception:
+            pass
 
     for i, uid in enumerate(user_ids, 1):
         try:
-            if message.reply_to_message:
-                await client.copy_message(
-                    chat_id=uid,
-                    from_chat_id=message.chat.id,
-                    message_id=source_msg.id
-                )
+            if source_msg_id:
+                await client.copy_message(chat_id=uid, from_chat_id=chat_id, message_id=source_msg_id)
             else:
-                text = message.text.split(maxsplit=1)[1]
                 await client.send_message(uid, text)
             sent += 1
-            consecutive_failures = 0  # Xatolik sanagichni qayta tiklash
+            consecutive_failures = 0
         except FloodWait as e:
             await asyncio.sleep(e.value + 2)
             try:
-                if message.reply_to_message:
-                    await client.copy_message(
-                        chat_id=uid,
-                        from_chat_id=message.chat.id,
-                        message_id=source_msg.id
-                    )
+                if source_msg_id:
+                    await client.copy_message(chat_id=uid, from_chat_id=chat_id, message_id=source_msg_id)
                 else:
-                    text = message.text.split(maxsplit=1)[1]
                     await client.send_message(uid, text)
                 sent += 1
                 consecutive_failures = 0
@@ -783,72 +848,67 @@ async def broadcast_handler(client: Client, message: Message):
                 failed_users.append(uid)
 
         if i == 10:
-            await status.edit_text(
-                f"🔓 **10 ta habar yuborildi! Auto-unlock qilinmoqda...**\n\n"
-                f"📊 Yuborildi: {sent} | Xato: {failed} | Blok: {blocked}"
+            await _edit_status(
+                "🔓 **10 ta xabar yuborildi! Auto-unlock qilinmoqda...**",
+                f"📊 Yuborildi: {sent} | Xato: {failed} | Blok: {blocked}",
             )
             await send_and_check_unlock(client)
-            await status.edit_text(
-                f"✅ **Unlock tugadi! Davom etmoqda...**\n\n"
-                f"📊 Yuborildi: {sent} | Xato: {failed} | Blok: {blocked}"
+            await _edit_status(
+                "✅ **Unlock tugadi! Davom etmoqda...**",
+                f"📊 Yuborildi: {sent} | Xato: {failed} | Blok: {blocked}",
             )
 
         if i == 35:
-            await status.edit_text(
-                f"🔓 **35 ta habar yuborildi! Auto-unlock qilinmoqda...**\n\n"
-                f"📊 Yuborildi: {sent} | Xato: {failed} | Blok: {blocked}"
+            await _edit_status(
+                "🔓 **35 ta xabar yuborildi! Auto-unlock qilinmoqda...**",
+                f"📊 Yuborildi: {sent} | Xato: {failed} | Blok: {blocked}",
             )
             await send_and_check_unlock(client)
-            await status.edit_text(
-                f"✅ **Unlock tugadi! Davom etmoqda...**\n\n"
-                f"📊 Yuborildi: {sent} | Xato: {failed} | Blok: {blocked}"
+            await _edit_status(
+                "✅ **Unlock tugadi! Davom etmoqda...**",
+                f"📊 Yuborildi: {sent} | Xato: {failed} | Blok: {blocked}",
             )
 
         if consecutive_failures >= 10:
-            await status.edit_text(
-                f"⚠️ **Account locked bo'lishi mumkin! Auto-unlock qilinmoqda...**\n\n"
-                f"📊 Yuborildi: {sent} | Xato: {failed} | Blok: {blocked}"
+            await _edit_status(
+                "⚠️ **Account locked bo'lishi mumkin! Auto-unlock qilinmoqda...**",
+                f"📊 Yuborildi: {sent} | Xato: {failed} | Blok: {blocked}",
             )
             unlock_success = await send_and_check_unlock(client)
             if unlock_success:
-                await status.edit_text(
-                    f"✅ **Auto-unlock muvaffaqiyatli! Davom etmoqda...**\n\n"
-                    f"📊 Yuborildi: {sent} | Xato: {failed} | Blok: {blocked}"
+                await _edit_status(
+                    "✅ **Auto-unlock muvaffaqiyatli! Davom etmoqda...**",
+                    f"📊 Yuborildi: {sent} | Xato: {failed} | Blok: {blocked}",
                 )
-            consecutive_failures = 0  # Sanagichni qayta tiklash
+            consecutive_failures = 0
 
-        await asyncio.sleep(0.05)  # ~20 msg/sec — Telegram limit uchun xavfsiz
+        await asyncio.sleep(0.05)
 
         if i % 50 == 0:
             try:
                 await status.edit_text(
                     f"📢 **Broadcast...**\n\n"
-                    f"✅ Yuborildi: {sent}\n"
-                    f"🚫 Bloklagan: {blocked}\n"
-                    f"❌ Xato: {failed}\n"
-                    f"📊 {i} / {len(user_ids)}"
+                    f"✅ Yuborildi: {sent}\n🚫 Bloklagan: {blocked}\n❌ Xato: {failed}"
                 )
-            except:
+            except Exception:
                 pass
 
-    await status.edit_text(
-        f"🔓 **Broadcast tugadi! Oxirgi unlock qilinmoqda...**\n\n"
-        f"📊 Yuborildi: {sent} | Xato: {failed} | Blok: {blocked}"
+    await _edit_status(
+        "🔓 **Broadcast tugadi! Oxirgi unlock qilinmoqda...**",
+        f"📊 Yuborildi: {sent} | Xato: {failed} | Blok: {blocked}",
     )
     await send_and_check_unlock(client)
 
     if failed_users:
         from config import user_states
-        user_states[message.from_user.id] = {
+        user_states[owner_id] = {
             "type": "broadcast_retry",
             "failed_users": failed_users,
-            "source_msg_id": source_msg.id if source_msg else None,
-            "text": message.text.split(maxsplit=1)[1] if not source_msg and len(message.text.split(maxsplit=1)) > 1 else None,
-            "chat_id": message.chat.id
+            "source_msg_id": source_msg_id,
+            "text": text,
+            "chat_id": chat_id,
         }
-
-        retry_button = InlineKeyboardButton("🔄 Xatoga tushganlarga qayta urinish", callback_data="broadcast_retry")
-        keyboard = [[retry_button]]
+        keyboard = [[InlineKeyboardButton("🔄 Xatoga tushganlarga qayta urinish", callback_data="broadcast_retry")]]
     else:
         keyboard = []
 
@@ -859,13 +919,10 @@ async def broadcast_handler(client: Client, message: Message):
         f"❌ Boshqa xato: **{failed}** ta\n"
         f"👥 Jami: **{len(user_ids)}** ta"
     )
-
     await status.edit_text(
         result_text,
         reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None
     )
-
-
 
 
 @Client.on_callback_query(filters.regex("^broadcast_retry$") & is_admin_callback_filter)
@@ -1276,6 +1333,36 @@ async def admin_add_handler(client: Client, message: Message):
     uid = message.from_user.id
     
     state = user_states.get(uid)
+    if state == "broadcast_waiting_text":
+        broadcast_text = message.text.strip()
+        if not broadcast_text:
+            await message.reply_text(
+                "❌ Matn bo'sh bo'lishi mumkin emas! Qaytadan yozing yoki bekor qiling.",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("❌ Bekor qilish", callback_data="bc_cancel")
+                ]])
+            )
+            return
+
+        # Broadcast matni qabul qilindi — Send/Cancel tasdiq tugmalarini chiqaramiz
+        user_states[uid] = {
+            "type": "broadcast_confirm",
+            "source_msg_id": None,
+            "text": broadcast_text,
+            "chat_id": message.chat.id,
+        }
+        await message.reply_text(
+            f"📢 **Broadcastni tasdiqlash**\n\n"
+            f"📝 Xabar:\n{broadcast_text}\n\n"
+            f"👥 Qabul qiluvchilar: hamma ro'yxatdagi foydalanuvchilar (adminlardan tashqari)\n\n"
+            f"Yuborishni tasdiqlaysizmi?",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("✅ Ha, yuborish", callback_data="bc_send")],
+                [InlineKeyboardButton("❌ Bekor qilish", callback_data="bc_cancel")]
+            ])
+        )
+        return
+
     if state == "waiting_for_tag_message":
         user_states.pop(uid, None)
         
@@ -1398,25 +1485,43 @@ async def admin_tag_messages_callback(client: Client, cq: CallbackQuery):
     import time
     start_time = time.time()
     logger.info("[DIAG] HANDLER_START: handler=admin_tag_messages_callback callback_data=%s", cq.data)
-    
+
     try:
+        # TAG_MESSAGES yangi backend'da dict bo'lmasdan qolishi mumkin.
+        # Hamma holatda xavfsiz ishlash uchun dict() ga aylantiramiz.
+        try:
+            tags = dict(TAG_MESSAGES)
+        except Exception:
+            tags = {}
+
         lines = ["💬 **Tag Matnlari Ro'yxati**\n\n"]
-        
-        for msg_id, msg_text in TAG_MESSAGES.items():
+
+        # Ro'yxat juda uzun qolmasligi uchun 4096 belg chegarasini hisobga olamiz.
+        # Oxirgi 50 ta ko'satamiz; qolganlarni jami sonida ko'rsatamiz.
+        sorted_ids = sorted(tags.keys())
+        MAX_SHOWN = 50
+        for msg_id in sorted_ids[:MAX_SHOWN]:
+            msg_text = str(tags[msg_id])
             lines.append(f"**{msg_id}.** {msg_text}")
-        
-        lines.append(f"\n📊 Jami: **{len(TAG_MESSAGES)}** ta matn")
-        
+        if len(sorted_ids) > MAX_SHOWN:
+            lines.append(f"\n… va yana **{len(sorted_ids) - MAX_SHOWN}** ta matn")
+        lines.append(f"\n📊 Jami: **{len(tags)}** ta matn")
+
         text = "\n".join(lines)
-        
+
         keyboard = [
             [InlineKeyboardButton("➕ Yangi matn qo'shish", callback_data="admin_tag_add")],
             [InlineKeyboardButton("🔙 Admin panel", callback_data="menu_admin")]
         ]
-        
-        await cq.message.edit_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+        try:
+            await cq.message.edit_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+        except Exception as edit_err:
+            # MessageNotModified / ochirilgan xabar kabi kutilgan Telegram xatolarni
+            # handler buzilmasdan qabul qilamiz (jiravid nohuj, davom skipp).
+            logger.debug("[DIAG] admin_tag_messages edit_text xatolik: %s", edit_err)
         await cq.answer()
-        
+
         duration_ms = (time.time() - start_time) * 1000
         logger.info("[DIAG] HANDLER_END: handler=admin_tag_messages_callback duration_ms=%.2f", duration_ms)
         if duration_ms > 2000:
@@ -1424,7 +1529,12 @@ async def admin_tag_messages_callback(client: Client, cq: CallbackQuery):
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
         logger.error("[DIAG] HANDLER_ERROR: handler=admin_tag_messages_callback duration_ms=%.2f error=%s", duration_ms, e, exc_info=True)
-        raise
+        # Xatoni qayta ko'tarmaymiz — handler buzilmasligi uchun.
+        # Callbackni davom o'yno tugash uchun qabul qiymiz.
+        try:
+            await cq.answer()
+        except Exception:
+            pass
 
 
 @Client.on_callback_query(filters.regex("^admin_tag_add$") & is_admin_callback_filter)

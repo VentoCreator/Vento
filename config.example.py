@@ -65,6 +65,49 @@ ADMIN_REPORT_CHAT_ID = config.get("ADMIN_REPORT_CHAT_ID", 0)
 OWNER_ID = SUPER_ADMIN_ID  # Owner asosiy admin
 ADMIN_IDS = [SUPER_ADMIN_ID, SECOND_ADMIN_ID]
 
+# ---------------------------------------------------------------------------
+# Debug / development admin bypass (config.json yoki env orqali)
+# ---------------------------------------------------------------------------
+# DEBUG_MODE=true  -> DEBUG_ADMIN_IDS dagi ID lar owner huquqiga ega bo'ladi
+# DEBUG_ADMIN_IDS  -> vergul bilan ajratilgan qo'shimcha admin ID lar
+# Namuna (config.json):
+#   "DEBUG_MODE": "true",
+#   "DEBUG_ADMIN_IDS": "123456789,987654321"
+def _debug_flag(key: str, default: bool = False) -> bool:
+    raw = os.getenv(key)
+    if raw is not None:
+        return raw.strip().lower() in ("1", "true", "yes", "on")
+    value = config.get(key, default)
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _parse_id_list(raw) -> list:
+    ids = []
+    if not raw:
+        return ids
+    if isinstance(raw, (list, tuple, set)):
+        parts = raw
+    else:
+        parts = str(raw).replace(";", ",").split(",")
+    for part in parts:
+        part = str(part).strip().lstrip("@")
+        try:
+            val = int(part)
+        except (ValueError, TypeError):
+            continue
+        if val > 0 and val not in ids:
+            ids.append(val)
+    return ids
+
+
+DEBUG_ADMIN_IDS = _parse_id_list(os.getenv("DEBUG_ADMIN_IDS"))
+DEBUG_ADMIN_IDS += [
+    x for x in _parse_id_list(config.get("DEBUG_ADMIN_IDS")) if x not in DEBUG_ADMIN_IDS
+]
+DEBUG_MODE = _debug_flag("DEBUG_MODE")
+
 
 async def load_admin_ids_from_db():
     """Bazadan admin ID larini yuklash"""
@@ -72,15 +115,24 @@ async def load_admin_ids_from_db():
     from database import get_all_admins
     admins = await get_all_admins()
     ADMIN_IDS = [admin["admin_id"] for admin in admins]
+    for default_id in [SUPER_ADMIN_ID, SECOND_ADMIN_ID] + DEBUG_ADMIN_IDS:
+        if default_id not in ADMIN_IDS:
+            ADMIN_IDS.append(default_id)
     return ADMIN_IDS
 
 
 def is_admin(user_id: int) -> bool:
-    return user_id in ADMIN_IDS
+    if user_id in ADMIN_IDS:
+        return True
+    return user_id in DEBUG_ADMIN_IDS
 
 
 def is_owner(user_id: int) -> bool:
-    return user_id == OWNER_ID
+    if user_id == OWNER_ID:
+        return True
+    if DEBUG_MODE and user_id in DEBUG_ADMIN_IDS:
+        return True
+    return False
 
 
 async def has_permission(user_id: int, permission: str) -> bool:
